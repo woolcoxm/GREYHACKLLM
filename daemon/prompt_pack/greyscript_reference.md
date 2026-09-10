@@ -34,7 +34,7 @@ first = fruits[0]
 n = fruits.len
 
 // map  (curly braces; dot access for simple keys)
-user = {"name": "mark", "level": 4}
+user = {"name": "guest", "level": 4}
 user["level"] = 5
 user.level = 5
 if user["missing"] == null then print("absent key reads as null")

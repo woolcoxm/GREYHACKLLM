@@ -539,7 +539,7 @@ public static class Ops
         var comp2 = player.GetComputer();
         var fs1 = comp1.GetFileSystem();
         var fs2 = comp2.GetFileSystem();
-        var folder = fs1.GetCarpeta("/home/mark/.greyllm");
+        var folder = fs1.GetCarpeta("/home/player/.greyllm");
         if (folder == null)
         {
             return HookServer.Error("bridge folder missing");
@@ -560,10 +560,10 @@ public static class Ops
             ["before"] = before,
             ["after"] = after,
             ["viaSubArchivo"] = folder.GetSubArchivo("dbgprobe.txt") != null,
-            ["viaGetArchivo"] = fs1.GetArchivo("/home/mark/.greyllm/dbgprobe.txt") != null,
+            ["viaGetArchivo"] = fs1.GetArchivo("/home/player/.greyllm/dbgprobe.txt") != null,
             ["probeId"] = probe.ID,
             ["folderName"] = folder.GetNombre(),
-            ["parentIsRoot"] = ReferenceEquals(folder.GetParent(), fs1.GetCarpeta("/home/mark")),
+            ["parentIsRoot"] = ReferenceEquals(folder.GetParent(), fs1.GetCarpeta("/home/player")),
         };
     }
 

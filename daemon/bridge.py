@@ -160,9 +160,9 @@ AGENT_TOOLS = [
     {
         "name": "compile_program",
         "description": "Compile GreyScript source into a runnable binary "
-        "program. Example: compile_program(source_path='/home/mark/"
-        "tool.src', binary_path='/home/mark/tool'). Then run_program"
-        "(path='/home/mark/tool'). Args are plain absolute paths with NO "
+        "program. Example: compile_program(source_path='/home/player/"
+        "tool.src', binary_path='/home/player/tool'). Then run_program"
+        "(path='/home/player/tool'). Args are plain absolute paths with NO "
         "semicolons, spaces, or extra syntax.",
         "input_schema": {
             "type": "object",

@@ -1,0 +1,7 @@
+// smoke test: executes INSIDE the running game via the message hook
+print("=== GreyLLM in-game execution online ===")
+comp = get_shell.host_computer
+print("computer: " + comp.local_ip)
+print("user: " + active_user + "  home: " + home_dir)
+print("wall clock: " + current_date)
+print("=== if you can read this, the hook works ===")

@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "greybel-js": "^3.7.12"
+  },
+  "scripts": {
+    "check": "node tools/check-syntax.mjs game/agent.src game/llm.src"
+  }
+}

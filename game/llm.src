@@ -1,0 +1,265 @@
+// GreyLLM client — talk to an AI from inside Grey Hack (singleplayer)
+//
+// Requires the GreyLLM daemon (daemon/bridge.py) running on your real PC.
+// The daemon watches the game's save data on disk and shuttles messages
+// between this program and the GLM API.
+//
+// Usage (from your in-game terminal):
+//   llm <prompt...>      send a prompt to the AI and wait for the reply
+//   llm -t               test the bridge (works even without an API key)
+//   llm -r               print the last reply again
+//   llm -w               keep waiting for the last prompt
+//   llm -s <name>        save the code block of the last reply
+//
+// All bridge files live in /home/<you>/llm on your in-game machine.
+
+BRIDGE_DIR = home_dir + "/.greyllm"
+TIMEOUT = 240
+MARKER = "GreyLLM-BRIDGE-READY"
+
+usage = function()
+	print("GreyLLM - local AI bridge")
+	print("usage: llm <prompt...>")
+	print("       llm -t   test bridge")
+	print("       llm -r   show last reply")
+	print("       llm -w   keep waiting")
+	print("       llm -s <name>   save last code block")
+end function
+
+getComp = function()
+	return get_shell.host_computer
+end function
+
+getOrCreateFolder = function(comp, path)
+	folder = comp.File(path)
+	if folder != null then
+		return folder
+	end if
+	parts = path.split("/")
+	name = parts[parts.len - 1]
+	result = comp.create_folder(parent_path(path), name)
+	folder = comp.File(path)
+	if folder == null then
+		print("ERROR: could not create " + path + " (" + result + ")")
+	end if
+	return folder
+end function
+
+getOrCreateFile = function(comp, path)
+	f = comp.File(path)
+	if f != null then
+		return f
+	end if
+	parts = path.split("/")
+	name = parts[parts.len - 1]
+	result = comp.touch(parent_path(path), name)
+	f = comp.File(path)
+	if f == null then
+		print("ERROR: could not create " + path + " (" + result + ")")
+	end if
+	return f
+end function
+
+nextNonce = function(comp)
+	// rnd() is DETERMINISTIC in Grey Hack (same value every run) — a
+	// counter file is the only reliable source of per-request uniqueness
+	counterF = getOrCreateFile(comp, BRIDGE_DIR + "/counter.txt")
+	n = 1
+	if counterF != null then
+		v = counterF.get_content
+		if v != null then
+			if v != "" then
+				n = val(v) + 1
+			end if
+		end if
+		counterF.set_content(str(n))
+	end if
+	return str(n)
+end function
+
+waitForReply = function(comp, nonce, timeout)
+	waited = 0
+	target = "done " + nonce
+	while waited < timeout
+		// re-fetch every poll; done.txt is written in place by the daemon
+		done = comp.File(BRIDGE_DIR + "/done.txt").get_content
+		if done == target then
+			return "done"
+		end if
+		wait(1)
+		waited = waited + 1
+	end while
+	return null
+end function
+
+presentReply = function(comp, status)
+	if status == null then
+		print("timeout: daemon did not answer. Is bridge.py running? (try: llm -w)")
+		return null
+	end if
+	if status == "done" then
+		print(comp.File(BRIDGE_DIR + "/response.txt").get_content)
+		return null
+	end if
+	print("daemon reported: " + status)
+	return null
+end function
+
+sendPrompt = function(comp, prompt, doWait)
+	folder = getOrCreateFolder(comp, BRIDGE_DIR)
+	if folder == null then
+		return null
+	end if
+	promptF = getOrCreateFile(comp, BRIDGE_DIR + "/prompt.txt")
+	modeF = getOrCreateFile(comp, BRIDGE_DIR + "/mode.txt")
+	statusF = getOrCreateFile(comp, BRIDGE_DIR + "/status.txt")
+	responseF = getOrCreateFile(comp, BRIDGE_DIR + "/response.txt")
+	if promptF == null then
+		return null
+	end if
+	if modeF == null then
+		return null
+	end if
+	if statusF == null then
+		return null
+	end if
+	if responseF == null then
+		return null
+	end if
+	// rewrite every polled file with a fresh nonce BEFORE triggering: this
+	// re-aligns the game's in-memory tree, the db tree and the row itself,
+	// so the daemon's in-place write lands exactly where we poll
+	nonce = nextNonce(comp)
+	globals.nonce = nonce
+	responseF.set_content("r" + nonce)
+	doneF = getOrCreateFile(comp, BRIDGE_DIR + "/done.txt")
+	if doneF == null then
+		return null
+	end if
+	doneF.set_content("w" + nonce)
+	promptF.set_content(prompt)
+	modeF.set_content("chat")
+	statusF.set_content("busy " + nonce)
+	// done.txt is daemon-owned; it will be set to "done <nonce>" — a stale
+	// done from an earlier request never matches this wait
+	if not doWait then
+		print("sent. use llm -w to wait for the reply")
+		return null
+	end if
+	return presentReply(comp, waitForReply(comp, globals.nonce, TIMEOUT))
+end function
+
+ask = function(comp, params)
+	prompt = params.join(" ")
+	return sendPrompt(comp, prompt, true)
+end function
+
+runTest = function(comp)
+	folder = getOrCreateFolder(comp, BRIDGE_DIR)
+	if folder == null then
+		return null
+	end if
+	markerF = getOrCreateFile(comp, BRIDGE_DIR + "/bridge.txt")
+	if markerF != null then
+		markerF.set_content(MARKER)
+	end if
+	print("bridge files live in " + BRIDGE_DIR)
+	print("on your PC run: python bridge.py --db-map")
+	print("testing bridge...")
+	return sendPrompt(comp, "PING", true)
+end function
+
+showLast = function(comp)
+	responseF = comp.File(BRIDGE_DIR + "/response.txt")
+	if responseF == null then
+		print("no reply yet")
+		return null
+	end if
+	print(responseF.get_content)
+	return null
+end function
+
+waitLast = function(comp)
+	statusF = comp.File(BRIDGE_DIR + "/status.txt")
+	responseF = comp.File(BRIDGE_DIR + "/response.txt")
+	if statusF == null then
+		print("nothing to wait for")
+		return null
+	end if
+	if responseF == null then
+		print("nothing to wait for")
+		return null
+	end if
+	nonce = globals.nonce
+	if nonce == null then
+		parts = statusF.get_content.split(" ")
+		if parts.len >= 2 then
+			nonce = parts[1]
+		end if
+	end if
+	if nonce == null then
+		nonce = "x"
+	end if
+	return presentReply(comp, waitForReply(comp, nonce, TIMEOUT))
+end function
+
+saveLast = function(comp, name)
+	responseF = comp.File(BRIDGE_DIR + "/response.txt")
+	if responseF == null then
+		print("no reply yet")
+		return null
+	end if
+	txt = responseF.get_content
+	// save as an extensionless program in home; the terminal searches the
+	// current directory first, so it runs by name from ~
+	path = home_dir + "/" + name
+	parts = txt.split("```")
+	code = txt
+	if parts.len >= 2 then
+		code = parts[1]
+	end if
+	outF = getOrCreateFile(comp, path)
+	if outF == null then
+		return null
+	end if
+	outF.set_content(code)
+	print("saved: " + path + " (" + code.len + " chars)")
+	print("run it with: " + name)
+	return null
+end function
+
+main = function(params)
+	comp = getComp()
+	if params == null then
+		usage()
+		return null
+	end if
+	if params.len == 0 then
+		usage()
+		return null
+	end if
+	if params.len == 1 and params[0] == "" then
+		usage()
+		return null
+	end if
+	first = params[0]
+	if first == "-t" then
+		return runTest(comp)
+	end if
+	if first == "-r" then
+		return showLast(comp)
+	end if
+	if first == "-w" then
+		return waitLast(comp)
+	end if
+	if first == "-s" then
+		if params.len < 2 then
+			print("usage: llm -s <name>")
+			return null
+		end if
+		return saveLast(comp, params[1])
+	end if
+	return ask(comp, params)
+end function
+
+main(params)

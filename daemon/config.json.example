@@ -1,0 +1,20 @@
+{
+  "transport": "hook",
+  "hook_port": 7788,
+  "hook_bridge_dir": "",
+  "api_style": "anthropic",
+  "base_url": "https://api.z.ai/api/anthropic",
+  "model": "glm-5.3",
+  "api_key": "YOUR_GLMI_API_KEY_HERE",
+  "poll_interval": 0.5,
+  "max_history": 6,
+  "request_timeout": 300,
+  "max_tokens": 16384,
+  "max_tool_rounds": 25,
+  "tool_timeout": 120,
+
+  "_comment_sqlite_fallback": "only needed when transport is 'sqlite'",
+  "db_path": "C:\\Program Files (x86)\\Steam\\steamapps\\Common\\Grey Hack\\Grey Hack_Data\\GreyHackDB.db",
+  "db_file_ids": {},
+  "bridge_dir": ""
+}

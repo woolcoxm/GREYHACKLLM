@@ -1,0 +1,549 @@
+// GreyLLM agent — in-game harness runtime for Grey Hack (singleplayer)
+//
+// This is the "hands" of the AI. The daemon (daemon/bridge.py) runs the
+// model; when the model wants to inspect or change your machine, the daemon
+// writes a tool command into /tmp/llm/command.txt and THIS program executes
+// it: listing folders, reading/writing files, running programs.
+//
+// Usage (from your in-game terminal):
+//   agent <task...>   give the AI a task; it works until done, then the
+//                         final answer is printed here
+//   agent -t          test the bridge (works even without an API key)
+//   agent -w          keep watching the current task (after a timeout)
+//   agent -r          print the last final answer
+//   agent -s <name>   save the last answer's code block as <name>.src
+//
+// Tool programs the AI writes are told to log output to the bridge's
+// out.txt file, which gets read back after each run.
+//
+// All bridge files live in /home/<you>/llm on your in-game machine.
+
+BRIDGE_DIR = home_dir + "/.greyllm"
+STALL_TIMEOUT = 300
+MARKER = "GreyLLM-BRIDGE-READY"
+NL = char(10)
+
+usage = function()
+	print("GreyLLM agent - in-game AI harness")
+	print("usage: agent <task...>")
+	print("       agent -t   test bridge")
+	print("       agent -w   keep watching current task")
+	print("       agent -r   show last answer")
+	print("       agent -s <name>   save last code block")
+end function
+
+getComp = function()
+	return get_shell.host_computer
+end function
+
+getOrCreateFolder = function(comp, path)
+	folder = comp.File(path)
+	if folder != null then
+		return folder
+	end if
+	parts = path.split("/")
+	name = parts[parts.len - 1]
+	result = comp.create_folder(parent_path(path), name)
+	folder = comp.File(path)
+	if folder == null then
+		print("ERROR: could not create " + path + " (" + result + ")")
+	end if
+	return folder
+end function
+
+getOrCreateFile = function(comp, path)
+	f = comp.File(path)
+	if f != null then
+		return f
+	end if
+	parts = path.split("/")
+	name = parts[parts.len - 1]
+	result = comp.touch(parent_path(path), name)
+	f = comp.File(path)
+	if f == null then
+		print("ERROR: could not create " + path + " (" + result + ")")
+	end if
+	return f
+end function
+
+reply = function(comp, ok, text, tag)
+	// the tag makes each round's completion unique — a stale "done" from a
+	// previous tool round must never satisfy the daemon's next wait
+	resultF = comp.File(BRIDGE_DIR + "/command_result.txt")
+	statusF = comp.File(BRIDGE_DIR + "/command_status.txt")
+	if resultF == null then
+		return null
+	end if
+	if statusF == null then
+		return null
+	end if
+	resultF.set_content(text)
+	if tag == null then
+		tag = "0"
+	end if
+	if ok then
+		statusF.set_content("done " + tag)
+	else
+		statusF.set_content("error " + tag)
+	end if
+	return null
+end function
+
+execute = function(comp, cmd)
+	// NOTE: split() is regex-based in GreyScript — ";" has no regex meaning.
+	// Format: op;arg1;arg2;tag — the tag is always the last field.
+	parts = cmd.split(";")
+	op = parts[0]
+	tag = parts[parts.len - 1]
+
+	if op == "list" then
+		if parts.len < 2 then
+			reply(comp, false, "list needs a path", tag)
+			return null
+		end if
+		folder = comp.File(parts[1])
+		if folder == null then
+			reply(comp, false, "not found: " + parts[1], tag)
+			return null
+		end if
+		rows = ""
+		files = folder.get_files
+		if files != null then
+			for f in files
+				rows = rows + "FILE " + f.path + NL
+			end for
+		end if
+		folders = folder.get_folders
+		if folders != null then
+			for f in folders
+				rows = rows + "DIR " + f.path + NL
+			end for
+		end if
+		reply(comp, true, rows, tag)
+		return null
+	end if
+
+	if op == "read" then
+		if parts.len < 2 then
+			reply(comp, false, "read needs a path", tag)
+			return null
+		end if
+		f = comp.File(parts[1])
+		if f == null then
+			reply(comp, false, "not found: " + parts[1], tag)
+			return null
+		end if
+		reply(comp, true, f.get_content, tag)
+		return null
+	end if
+
+	if op == "write" then
+		if parts.len < 2 then
+			reply(comp, false, "write needs a path", tag)
+			return null
+		end if
+		payloadF = comp.File(BRIDGE_DIR + "/payload.txt")
+		content = ""
+		if payloadF != null then
+			content = payloadF.get_content
+		end if
+		f = getOrCreateFile(comp, parts[1])
+		if f == null then
+			reply(comp, false, "cannot create " + parts[1], tag)
+			return null
+		end if
+		f.set_content(content)
+		reply(comp, true, "wrote " + content.len + " chars to " + parts[1], tag)
+		return null
+	end if
+
+	if op == "append" then
+		if parts.len < 2 then
+			reply(comp, false, "append needs a path", tag)
+			return null
+		end if
+		payloadF = comp.File(BRIDGE_DIR + "/payload.txt")
+		content = ""
+		if payloadF != null then
+			content = payloadF.get_content
+		end if
+		f = getOrCreateFile(comp, parts[1])
+		if f == null then
+			reply(comp, false, "cannot create " + parts[1], tag)
+			return null
+		end if
+		f.set_content(f.get_content + content)
+		reply(comp, true, "appended " + content.len + " chars to " + parts[1], tag)
+		return null
+	end if
+
+	if op == "mkdir" then
+		if parts.len < 2 then
+			reply(comp, false, "mkdir needs a path", tag)
+			return null
+		end if
+		folder = getOrCreateFolder(comp, parts[1])
+		if folder == null then
+			reply(comp, false, "cannot create " + parts[1], tag)
+			return null
+		end if
+		reply(comp, true, parts[1], tag)
+		return null
+	end if
+
+	if op == "rm" then
+		if parts.len < 2 then
+			reply(comp, false, "rm needs a path", tag)
+			return null
+		end if
+		f = comp.File(parts[1])
+		if f == null then
+			reply(comp, false, "not found: " + parts[1], tag)
+			return null
+		end if
+		f.delete
+		reply(comp, true, "deleted " + parts[1])
+		return null
+	end if
+
+	if op == "run" then
+		if parts.len < 2 then
+			reply(comp, false, "run needs a path", tag)
+			return null
+		end if
+		args = ""
+		if parts.len >= 3 then
+			args = parts[2]
+		end if
+		outF = getOrCreateFile(comp, BRIDGE_DIR + "/out.txt")
+		if outF != null then
+			outF.set_content(" ")
+		end if
+		launchResult = get_shell.launch(parts[1], args)
+		out = ""
+		outFile2 = comp.File(BRIDGE_DIR + "/out.txt")
+		if outFile2 != null then
+			out = outFile2.get_content
+		end if
+		reply(comp, true, "launch returned: " + launchResult + NL + "out.txt follows:" + NL + out, tag)
+		return null
+	end if
+
+	if op == "build" then
+		if parts.len < 3 then
+			reply(comp, false, "build needs source and binary paths", tag)
+			return null
+		end if
+		buildResult = get_shell.build(parts[1], parts[2])
+		reply(comp, true, "build returned: " + buildResult, tag)
+		return null
+	end if
+
+	if op == "sysinfo" then
+		rows = "home: " + home_dir + NL
+		rows = rows + "bridge: " + BRIDGE_DIR + NL
+		bin = comp.File("/bin")
+		if bin != null then
+			binFiles = bin.get_files
+			if binFiles != null then
+				for f in binFiles
+					rows = rows + "/bin/" + f.name + NL
+				end for
+			end if
+		end if
+		lib = comp.File("/lib")
+		if lib != null then
+			libFiles = lib.get_files
+			if libFiles != null then
+				for f in libFiles
+					rows = rows + "/lib/" + f.name + NL
+				end for
+			end if
+		end if
+		reply(comp, true, rows, tag)
+		return null
+	end if
+
+	reply(comp, false, "unknown op: " + op, tag)
+	return null
+end function
+
+serve = function(comp)
+	statusF = comp.File(BRIDGE_DIR + "/status.txt")
+	cmdStatusF = comp.File(BRIDGE_DIR + "/command_status.txt")
+	commandF = comp.File(BRIDGE_DIR + "/command.txt")
+	responseF = comp.File(BRIDGE_DIR + "/response.txt")
+	if statusF == null then
+		print("ERROR: bridge files missing, run agent -t first")
+		return null
+	end if
+	if cmdStatusF == null then
+		print("ERROR: bridge files missing, run agent -t first")
+		return null
+	end if
+	if commandF == null then
+		print("ERROR: bridge files missing, run agent -t first")
+		return null
+	end if
+	if responseF == null then
+		print("ERROR: bridge files missing, run agent -t first")
+		return null
+	end if
+	stalled = 0
+	doneTarget = "done " + globals.nonce
+	cmdTarget = "pending " + globals.nonce
+	while stalled < STALL_TIMEOUT
+		// re-fetch every poll; done.txt/cmdflag.txt are written in place
+		// by the daemon and matched by this task's nonce
+		done = comp.File(BRIDGE_DIR + "/done.txt").get_content
+		if done == doneTarget then
+			print(comp.File(BRIDGE_DIR + "/response.txt").get_content)
+			print("[agent] done. save the code with: agent -s <name>")
+			return null
+		end if
+		cs = comp.File(BRIDGE_DIR + "/cmdflag.txt").get_content
+		if cs == cmdTarget then
+			cmd = comp.File(BRIDGE_DIR + "/command.txt").get_content
+			print("[agent] tool: " + cmd)
+			execute(comp, cmd)
+			// clear the flag with a tag-unique value so this command cannot
+			// re-execute (unique content = unique row = no dedup collisions)
+			parts = cmd.split(";")
+			ranTag = parts[parts.len - 1]
+			cmdflagF = comp.File(BRIDGE_DIR + "/cmdflag.txt")
+			if cmdflagF != null then
+				cmdflagF.set_content("ran " + ranTag)
+			end if
+			stalled = 0
+		end if
+		wait(1)
+		stalled = stalled + 1
+	end while
+	print("[agent] timed out waiting. run: agent -w")
+	return null
+end function
+
+nextNonce = function(comp)
+	// rnd() is DETERMINISTIC in Grey Hack (same value every run) — a
+	// counter file is the only reliable source of per-request uniqueness
+	counterF = getOrCreateFile(comp, BRIDGE_DIR + "/counter.txt")
+	n = 1
+	if counterF != null then
+		v = counterF.get_content
+		if v != null then
+			if v != "" then
+				n = val(v) + 1
+			end if
+		end if
+		counterF.set_content(str(n))
+	end if
+	return str(n)
+end function
+
+initDaemonFiles = function(comp)
+	// daemon-owned files need distinct one-time content so each sits on
+	// its own row (touched-empty files would all share the "" row)
+	pairs = [["response.txt", "r0"], ["done.txt", "d0"], ["command.txt", "c0"], ["payload.txt", "p0"], ["cmdflag.txt", "f0"], ["command_status.txt", "t0"], ["command_result.txt", "u0"]]
+	for pair in pairs
+		f = getOrCreateFile(comp, BRIDGE_DIR + "/" + pair[0])
+		if f != null then
+			if f.get_content == "" then
+				f.set_content(pair[1])
+			end if
+		end if
+	end for
+	return null
+end function
+
+startTask = function(comp, prompt)
+	folder = getOrCreateFolder(comp, BRIDGE_DIR)
+	if folder == null then
+		return null
+	end if
+	initDaemonFiles(comp)
+	promptF = getOrCreateFile(comp, BRIDGE_DIR + "/prompt.txt")
+	modeF = getOrCreateFile(comp, BRIDGE_DIR + "/mode.txt")
+	statusF = getOrCreateFile(comp, BRIDGE_DIR + "/status.txt")
+	if promptF == null then
+		return null
+	end if
+	if modeF == null then
+		return null
+	end if
+	if statusF == null then
+		return null
+	end if
+	nonce = nextNonce(comp)
+	globals.nonce = nonce
+	// rewrite every polled file with a fresh nonce BEFORE triggering: this
+	// re-aligns the game's in-memory tree, the db tree and the row itself,
+	// so the daemon's in-place write lands exactly where we poll
+	responseF = getOrCreateFile(comp, BRIDGE_DIR + "/response.txt")
+	if responseF == null then
+		return null
+	end if
+	responseF.set_content("r" + nonce)
+	doneF = getOrCreateFile(comp, BRIDGE_DIR + "/done.txt")
+	if doneF == null then
+		return null
+	end if
+	doneF.set_content("w" + nonce)
+	cmdflagF = getOrCreateFile(comp, BRIDGE_DIR + "/cmdflag.txt")
+	if cmdflagF != null then
+		cmdflagF.set_content("f" + nonce)
+	end if
+	commandF = getOrCreateFile(comp, BRIDGE_DIR + "/command.txt")
+	if commandF != null then
+		commandF.set_content("c" + nonce)
+	end if
+	payloadF = getOrCreateFile(comp, BRIDGE_DIR + "/payload.txt")
+	if payloadF != null then
+		payloadF.set_content("p" + nonce)
+	end if
+	promptF.set_content(prompt)
+	modeF.set_content("agent")
+	statusF.set_content("busy " + nonce)
+	print("[agent] task sent: " + prompt)
+	print("[agent] serving tools now; leave this terminal open")
+	return null
+end function
+
+runTest = function(comp)
+	folder = getOrCreateFolder(comp, BRIDGE_DIR)
+	if folder == null then
+		return null
+	end if
+	initDaemonFiles(comp)
+	markerF = getOrCreateFile(comp, BRIDGE_DIR + "/bridge.txt")
+	if markerF != null then
+		markerF.set_content(MARKER)
+	end if
+	modeF = getOrCreateFile(comp, BRIDGE_DIR + "/mode.txt")
+	if modeF != null then
+		modeF.set_content("chat")
+	end if
+	print("bridge files live in " + BRIDGE_DIR)
+	print("on your PC run: python bridge.py --db-map")
+	print("testing bridge...")
+	promptF = getOrCreateFile(comp, BRIDGE_DIR + "/prompt.txt")
+	statusF = getOrCreateFile(comp, BRIDGE_DIR + "/status.txt")
+	responseF = getOrCreateFile(comp, BRIDGE_DIR + "/response.txt")
+	if promptF == null then
+		return null
+	end if
+	if statusF == null then
+		return null
+	end if
+	if responseF == null then
+		return null
+	end if
+	nonce = nextNonce(comp)
+	globals.nonce = nonce
+	responseF.set_content("r" + nonce)
+	doneF = getOrCreateFile(comp, BRIDGE_DIR + "/done.txt")
+	if doneF == null then
+		return null
+	end if
+	doneF.set_content("w" + nonce)
+	promptF.set_content("PING")
+	statusF.set_content("busy " + nonce)
+	doneTarget = "done " + nonce
+	waited = 0
+	while waited < 60
+		done = comp.File(BRIDGE_DIR + "/done.txt").get_content
+		if done == doneTarget then
+			print(comp.File(BRIDGE_DIR + "/response.txt").get_content)
+			return null
+		end if
+		wait(1)
+		waited = waited + 1
+	end while
+	print("no answer within 60s — is bridge.py running on your PC?")
+	return null
+end function
+
+showLast = function(comp)
+	responseF = comp.File(BRIDGE_DIR + "/response.txt")
+	if responseF == null then
+		print("no answer yet")
+		return null
+	end if
+	print(responseF.get_content)
+	return null
+end function
+
+saveLast = function(comp, name)
+	responseF = comp.File(BRIDGE_DIR + "/response.txt")
+	if responseF == null then
+		print("no answer yet")
+		return null
+	end if
+	txt = responseF.get_content
+	// save as an extensionless program in home; the terminal searches the
+	// current directory first, so it runs by name from ~ (/bin is not
+	// writable by regular users)
+	path = home_dir + "/" + name
+	parts = txt.split("```")
+	code = txt
+	if parts.len >= 2 then
+		code = parts[1]
+	end if
+	outF = getOrCreateFile(comp, path)
+	if outF == null then
+		return null
+	end if
+	outF.set_content(code)
+	print("saved: " + path + " (" + code.len + " chars)")
+	print("run it with: " + name + "  (from your home folder)")
+	return null
+end function
+
+main = function(params)
+	comp = getComp()
+	if params == null then
+		usage()
+		return null
+	end if
+	if params.len == 0 then
+		usage()
+		return null
+	end if
+	if params.len == 1 and params[0] == "" then
+		usage()
+		return null
+	end if
+	first = params[0]
+	if first == "-t" then
+		return runTest(comp)
+	end if
+	if first == "-r" then
+		return showLast(comp)
+	end if
+	if first == "-w" then
+		if globals.nonce == null then
+			statusF = comp.File(BRIDGE_DIR + "/status.txt")
+			if statusF != null then
+				parts = statusF.get_content.split(" ")
+				if parts.len >= 2 then
+					globals.nonce = parts[1]
+				end if
+			end if
+		end if
+		if globals.nonce == null then
+			globals.nonce = "x"
+		end if
+		return serve(comp)
+	end if
+	if first == "-s" then
+		if params.len < 2 then
+			print("usage: agent -s <name>")
+			return null
+		end if
+		return saveLast(comp, params[1])
+	end if
+	prompt = params.join(" ")
+	startTask(comp, prompt)
+	return serve(comp)
+end function
+
+main(params)

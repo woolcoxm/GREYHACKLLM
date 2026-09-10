@@ -1,0 +1,38 @@
+# --- secrets (never commit) ---
+daemon/config.json
+daemon/api_key.txt
+daemon/history.json
+.env
+*.env
+
+# --- game database backups & scratch copies ---
+daemon/db-backups/
+tools/dbwork/
+*.db
+*.db-journal
+*.db-wal
+
+# --- decompiled game/plugin sources (regenerate locally, do not commit) ---
+tools/game-full/
+tools/game-src/
+tools/hook-src/
+
+# --- node / python build artifacts ---
+node_modules/
+package-lock.json
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# --- dotnet build output (plugin builds into the game folder anyway) ---
+GreyLLMHook/bin/
+GreyLLMHook/obj/
+*.user
+
+# --- misc ---
+*.log
+.DS_Store
+Thumbs.db
+.node-persist/

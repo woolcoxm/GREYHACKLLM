@@ -159,11 +159,11 @@ AGENT_TOOLS = [
     },
     {
         "name": "compile_program",
-        "description": "Compile a GreyScript source file into a runnable "
-        "binary program: compile_program(source_path, binary_path). The "
-        "binary (extensionless) can then be launched with run_program. "
-        "THIS is how source code becomes runnable — raw .src files cannot "
-        "be launched.",
+        "description": "Compile GreyScript source into a runnable binary "
+        "program. Example: compile_program(source_path='/home/mark/"
+        "tool.src', binary_path='/home/mark/tool'). Then run_program"
+        "(path='/home/mark/tool'). Args are plain absolute paths with NO "
+        "semicolons, spaces, or extra syntax.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -770,6 +770,15 @@ def tool_command(name, args, tag):
     the in-game runtime echoes it in its completion marker so a stale 'done'
     from an earlier round can never satisfy this round's wait."""
     args = args or {}
+    # the bridge command line is ';'-separated; a ';' inside any argument
+    # would corrupt it. Reject loudly so the model corrects immediately.
+    for key, value in args.items():
+        if isinstance(value, str) and ";" in value:
+            raise ValueError(
+                f"argument '{key}' must not contain ';' — pass plain paths "
+                "and plain argument strings, this is a structured tool "
+                "call, not a shell command line"
+            )
     if name == "list_dir":
         return f"list;{args.get('path', '/')};{tag}", None
     if name == "read_file":

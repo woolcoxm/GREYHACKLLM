@@ -304,7 +304,8 @@ serve = function(comp)
 		cs = comp.File(BRIDGE_DIR + "/cmdflag.txt").get_content
 		if cs == cmdTarget then
 			cmd = comp.File(BRIDGE_DIR + "/command.txt").get_content
-			print("[agent] tool: " + cmd)
+			cmdParts = cmd.split(";")
+			print("[agent] tool: " + cmdParts[0] + " " + cmdParts[1])
 			execute(comp, cmd)
 			// clear the flag with a tag-unique value so this command cannot
 			// re-execute (unique content = unique row = no dedup collisions)

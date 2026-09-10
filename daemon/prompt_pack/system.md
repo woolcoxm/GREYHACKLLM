@@ -60,13 +60,14 @@ Keep tool use tight: don't walk the whole disk when one folder answers the quest
 - Keep programs short and flat. Many small functions, one `main(params)` at the bottom.
 - Defensive style: check for `null` before using files, lists, and map values. Print friendly error messages.
 - Terminal programs receive a global `params` list of argument strings; it may be null or empty — always guard it.
-- Never use APIs you are not confident exist. Stick to: `print`, `exit(message)`, `get_shell`, `get_shell.host_computer`, `get_shell.launch(program, args)`, computer `File(path)` / `touch(parentPath, fileName)` / `create_folder(parentPath, folderName)`, file `get_content` / `set_content(text)` / `path` / `name` / `delete`, folder `get_folders` / `get_files`, globals `home_dir` / `parent_path(path)` / `active_user`, `wait(seconds)`, `range`, `typeof`, `val`, list `push` / `join(sep)` / `len`, string `split` / `len` / `indexOf`, map `hasIndex`.
+- Never use APIs you are not confident exist. Stick to: `print`, `exit(message)`, `get_shell`, `get_shell.host_computer`, `get_shell.launch(program, args)`, `get_shell.ping(ip)`, `get_shell.connect_service(ip, port, user, password)`, `get_router`, computer `File(path)` / `touch(parentPath, fileName)` / `create_folder(parentPath, folderName)`, file `get_content` / `set_content(text)` / `path` / `name` / `delete`, folder `get_folders` / `get_files`, globals `home_dir` / `parent_path(path)` / `active_user`, `wait(seconds)`, `range`, `typeof`, `val`, list `push` / `join(sep)` / `len`, string `split` / `len` / `indexOf`, map `hasIndex`.
 - `sleep` and `create_file` DO NOT EXIST — use `wait` and `touch`.
 - `range(a,b)` is inclusive both ways (range(1,0) = [1,0] countdown). Join CLI words with `params.join(" ")`, never a range loop.
 - `split()` is regex-based — use inert separators (`;`, `,`) or escape.
 - Missing map keys throw; check `map.hasIndex(key)` first.
 - Loops that wait on something must be bounded (max iterations + `sleep`), because the game kills long-running programs.
-- Do not invent network or socket APIs. In-game networking only exists through the game's simulated APIs; if a request needs them, ask the user to confirm the exact API with `man` first.
+- NETWORKING: there is no NetUtil, no NetSession constructor, no scan()/port_scan(). Port scanning = `get_router` → `devices_lan_ip` → `device_ports(ip)` → skip `is_closed` → `port_info(port)`. NetSession comes ONLY from `include_lib("/lib/metaxploit.so").net_use(ip, port)`. The full verified patterns are in the GreyScript reference — follow them exactly.
+- API DISCIPLINE: you have an `api_doc` tool that returns the OFFICIAL docs (signature, returns, example) for any GreyScript type or method — call it before using any API not in your reference. `Key Not Found` and `Undefined Identifier` runtime errors mean you invented or mis-accessed an API — look it up with api_doc instead of guessing variations. If api_doc finds nothing, the API does not exist.
 
 ## Exploit/tool writing etiquette
 

@@ -34,6 +34,7 @@ Uses only the Python standard library.
 import argparse
 import json
 import os
+import re
 import socket
 import shutil
 import sqlite3
@@ -199,6 +200,20 @@ AGENT_TOOLS = [
         "learn what tools exist.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "api_doc",
+        "description": "Look up the OFFICIAL GreyScript API documentation for "
+        "a type or method — e.g. 'router', 'net_use', 'string split', "
+        "'wallet', 'include_lib'. Returns the exact signature, behavior, "
+        "return values and a usage example. ALWAYS call this before using an "
+        "API you have not used before: invented APIs are the #1 cause of "
+        "runtime errors like 'Undefined Identifier' or 'Key Not Found'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
 ]
 
 MOCK_CHAT_REPLY = """Here is a tool that greets every user folder.
@@ -272,15 +287,99 @@ def resolve_api_key(config):
     return None
 
 
+API_REF_MARKER = (
+    "<!-- api-reference: generated below, do not edit past this line -->"
+)
+
+
 def build_system_prompt():
     parts = []
     for name in ("system.md", "greyscript_reference.md"):
         p = DAEMON_DIR / "prompt_pack" / name
-        if p.exists():
-            parts.append(p.read_text(encoding="utf-8", errors="replace"))
-        else:
+        if not p.exists():
             print(f"warning: missing prompt pack file {p}", file=sys.stderr)
+            continue
+        text = p.read_text(encoding="utf-8", errors="replace")
+        if name == "greyscript_reference.md" and API_REF_MARKER in text:
+            # the full generated API appendix (~170 KB) is searchable via the
+            # api_doc tool instead of bloating every request
+            text = text.split(API_REF_MARKER, 1)[0]
+        parts.append(text)
     return "\n\n---\n\n".join(parts)
+
+
+def load_api_reference():
+    """Parse the generated appendix into (section, method, block) entries."""
+    p = DAEMON_DIR / "prompt_pack" / "greyscript_reference.md"
+    if not p.exists():
+        return []
+    text = p.read_text(encoding="utf-8", errors="replace")
+    if API_REF_MARKER in text:
+        text = text.split(API_REF_MARKER, 1)[1]
+    entries = []
+    section = ""
+    for piece in re.split(r"(?m)^(?=- `)", text):
+        piece = piece.strip("\n")
+        if not piece.strip():
+            continue
+        m = re.match(r"- `([A-Za-z_]\w*)", piece)
+        if m:
+            # a section header can ride at the END of an entry's piece
+            # (the split only breaks on entry lines) — cut it off and
+            # let it retarget the section for the entries that follow
+            h = re.search(r"(?m)^### .+$", piece)
+            if h:
+                section = h.group(0)[4:].strip()
+                piece = piece[: h.start()].rstrip()
+            entries.append((section, m.group(1), piece))
+            continue
+        h = re.search(r"(?m)^### (.+)$", piece)
+        if h:
+            section = h.group(1).strip()
+    return entries
+
+
+def api_doc_lookup(query):
+    """Answer an api_doc tool call from the generated API reference.
+    All query terms must appear in 'section.method' (case-insensitive), so
+    'router' lists the router API and 'string split' finds string.split."""
+    entries = load_api_reference()
+    terms = [t for t in re.split(r"[\s,]+", (query or "").strip().lower()) if t]
+    if not entries:
+        return False, (
+            "api_doc: the generated API reference is missing from the "
+            "prompt pack — run tools/build-reference.mjs"
+        )
+    if not terms:
+        return False, (
+            "api_doc: pass a type or method name, e.g. 'router', 'net_use', "
+            "'string split'"
+        )
+    hits = []
+    for section, method, block in entries:
+        hay = (section + "." + method).lower()
+        if all(t in hay for t in terms):
+            hits.append((section, block))
+    if not hits:
+        known = sorted({e[0] for e in entries})
+        return False, (
+            f"api_doc: no API matches {query!r}. Known API sections: "
+            + ", ".join(known)
+            + ". If your idea is not there it does not exist in GreyScript."
+        )
+    out = []
+    last = None
+    used = 0
+    for section, block in hits[:20]:
+        if section != last:
+            out.append(f"[{section}]")
+            last = section
+        out.append(block)
+        used += len(block) + len(section) + 4
+        if used > 6000:
+            out.append("(more matches truncated — narrow the query)")
+            break
+    return True, "\n\n".join(out)
 
 
 def sanitize_reply(text):
@@ -806,6 +905,9 @@ def dispatch_tool(config, transport, name, args, tag):
     """Send one tool command to the in-game runtime, wait for the result.
     The runtime echoes the tag in 'done <tag>' / 'error <tag>' — only the
     completion matching this round's tag counts. Returns (ok, output)."""
+    if name == "api_doc":
+        # daemon-side lookup, no in-game round-trip needed
+        return api_doc_lookup((args or {}).get("query", ""))
     line, payload = tool_command(name, args, tag)
     path = str(args.get("path", ""))
     is_program = path.endswith(".src") or path.startswith("/bin/")

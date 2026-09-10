@@ -160,17 +160,19 @@ AGENT_TOOLS = [
     {
         "name": "compile_program",
         "description": "Compile GreyScript source into a runnable binary "
-        "program. Example: compile_program(source_path='/home/player/"
-        "tool.src', binary_path='/home/player/tool'). Then run_program"
-        "(path='/home/player/tool'). Args are plain absolute paths with NO "
-        "semicolons, spaces, or extra syntax.",
+        "program. binary_folder is the DESTINATION FOLDER (e.g. "
+        "'/home/player'), NOT a file path — the binary is created inside "
+        "it, named after the source file without its .src extension. "
+        "Example: compile_program(source_path='/home/player/tool.src', "
+        "binary_folder='/home/player') then run_program"
+        "(path='/home/player/tool'). Plain paths, no semicolons.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "source_path": {"type": "string"},
-                "binary_path": {"type": "string"},
+                "binary_folder": {"type": "string"},
             },
-            "required": ["source_path", "binary_path"],
+            "required": ["source_path", "binary_folder"],
         },
     },
     {
@@ -794,7 +796,7 @@ def tool_command(name, args, tag):
     if name == "run_program":
         return f"run;{args['path']};{args.get('args', '')};{tag}", None
     if name == "compile_program":
-        return f"build;{args['source_path']};{args['binary_path']};{tag}", None
+        return f"build;{args['source_path']};{args['binary_folder']};{tag}", None
     if name == "sysinfo":
         return f"sysinfo;;;{tag}", None
     raise ValueError(f"unknown tool '{name}'")

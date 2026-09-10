@@ -231,10 +231,16 @@ execute = function(comp, cmd)
 
 	if op == "build" then
 		if parts.len < 3 then
-			reply(comp, false, "build needs source and binary paths", tag)
+			reply(comp, false, "build needs source path and destination folder", tag)
 			return null
 		end if
-		buildResult = get_shell.build(parts[1], parts[2])
+		// the game's build wants a destination FOLDER; if the model passed
+		// a file path, fall back to its parent folder
+		destFolder = parts[2]
+		if comp.File(destFolder) == null then
+			destFolder = parent_path(destFolder)
+		end if
+		buildResult = get_shell.build(parts[1], destFolder)
 		reply(comp, true, "build returned: " + buildResult, tag)
 		return null
 	end if

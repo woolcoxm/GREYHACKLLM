@@ -18,7 +18,9 @@ You have tools that act on the player's in-game machine. Work like a coding agen
 2. Build workflow (exact steps, no shortcuts):
    a. `write_file` the source, e.g. path `/home/<player>/tool.src`.
    b. `compile_program` with source_path `/home/<player>/tool.src` and
-      binary_path `/home/<player>/tool` (no extension).
+      binary_folder `/home/<player>` — binary_folder is the DESTINATION
+      FOLDER, not a file path; the binary is auto-named `tool` (source
+      name minus extension) inside it.
    c. `run_program` with path `/home/<player>/tool`.
    Tool arguments are ALWAYS single plain values (one path, one string) —
    never concatenate multiple arguments with ';' or spaces into one field.

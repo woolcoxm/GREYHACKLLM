@@ -833,7 +833,15 @@ def dispatch_tool(config, transport, name, args, tag):
         status = (transport.read("command_status.txt") or "").strip()
         if status == f"done {tag}":
             transport.write("cmdflag.txt", "idle")
-            return True, (transport.read("command_result.txt") or "")[:8000]
+            result = (transport.read("command_result.txt") or "")[:8000]
+            if result.startswith("unknown op"):
+                return False, (
+                    f"{result} — the in-game agent runtime is OUTDATED and "
+                    "does not support this tool. Tell the user to re-paste "
+                    "the current game/agent.src into /bin/agent, then retry. "
+                    "Do NOT try to work around this by launching files."
+                )
+            return True, result
         if status == f"error {tag}":
             transport.write("cmdflag.txt", "idle")
             return False, (transport.read("command_result.txt") or "")[:8000]
@@ -1022,6 +1030,23 @@ def watch(config, mock):
         transport.read("status.txt")
     except Exception as exc:  # noqa: BLE001 - config problem
         die(f"cannot read bridge files: {exc}")
+    if isinstance(transport, HookTransport):
+        try:
+            runtime = transport._call({"op": "read", "path": "/bin/agent"})
+            body = runtime.get("content") or ""
+            missing = [
+                op for op in ('op == "build"', "nextNonce")
+                if op not in body
+            ]
+            if missing:
+                print(
+                    "[bridge] WARNING: /bin/agent in game is OUTDATED "
+                    f"(missing: {missing}). Re-paste the current "
+                    "game/agent.src into /bin/agent — tool calls will fail "
+                    "with 'unknown op' until then."
+                )
+        except Exception:  # noqa: BLE001 - advisory only
+            pass
     print(
         "[bridge] watching game save. In game: agent <task>  |  "
         "llm <question>  (Ctrl+C to stop)"

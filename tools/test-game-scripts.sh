@@ -89,7 +89,8 @@ check "plague: root w/o shell keeps hunting" "SWEEP-CONT" 1.2.3.4
 check "plague: planner secures durable"   "[secure]" 1.2.3.4
 check "plague: planner harvests on root"  "[harvest]" 1.2.3.4
 check "plague: crack + usepass rungs"     "CRACKED root=" 1.2.3.4
-check "plague: verdict names the access"  "VERDICT OWNED root" 1.2.3.4
+check "plague: verdict names the access"  "VERDICT OWNED guest-shell" 1.2.3.4
+check "plague: census counts by kind"      "SUMMARY footholds=" 1.2.3.4
 check "plague: verdict reports wiped log" ", log wiped)" 1.2.3.4
 check "plague: list mode fires nothing"   "(listed)" -l 1.2.3.4
 check "plague: rootless runs flagged honestly" "EVIDENCE-LEFT" -l 1.2.3.4

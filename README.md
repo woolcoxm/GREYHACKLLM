@@ -43,8 +43,11 @@ The pieces that make this work, each installed once:
 
 ## Requirements
 
-- **Grey Hack** (Steam), played in **singleplayer** (multiplayer is
-  unsupported by design — the plugin refuses to operate there).
+- **Grey Hack** (Steam). The **agent harness** (plugin + daemon +
+  in-game runtime) is singleplayer-only — the plugin refuses
+  multiplayer worlds by design. The attack tools themselves
+  (`exploit`, `worm`, `secure`) are standalone GreyScript and run in
+  any world (see "Standalone use & multiplayer").
 - **Windows** (the plugin and paths are Windows-oriented; the daemon itself
   is plain Python and runs anywhere).
 - **Python 3.12+** — runs the daemon.
@@ -420,6 +423,40 @@ removes the exploit/worm contraband an MP box should never carry, then
 prints the manual checklist the game has no API for (router firewall,
 port forwards, `apt-get upgrade`).
 
+### Standalone use & multiplayer
+
+`exploit`, `worm`, and `secure` are **pure GreyScript — no agent, no
+daemon, no plugin, no bridge folder required.** In a world without the
+GreyLLM bridge, the exploit report simply lands in `~/exploit_out.txt`
+and everything else (state, exfil, logs) already lives in your home.
+The singleplayer-only pieces are the agent harness itself (`agent`,
+`bridge.py`, the plugin) — the plugin refuses multiplayer worlds by
+design, since live filesystem access to a shared world is not its job.
+
+To run the tools in a multiplayer world:
+
+1. Open the in-game **Code Editor**, create a file, paste all of
+   `game/exploit.src`, save it as `~/exploit.src`, press **Compile**.
+2. Repeat for `game/worm.src` → `~/worm.src` (compiling the worm is
+   optional — it builds `~/exploit` itself when the binary is missing,
+   but it needs `~/exploit.src` beside it).
+3. Optionally paste `game/secure.src` → `~/secure.src` and harden your
+   box **before** anything else (see above).
+4. From any terminal: `~/worm <ip>` — every flag from the
+   singleplayer workflow works identically.
+
+Multiplayer-specific cautions:
+
+- **No auto-updates.** The daemon isn't there to reinstall the tools;
+  after a repo update, re-paste the sources yourself.
+- **CPU wear lands on whatever box drives the epidemic.** The frontier
+  driver (and the login-time workers from `-install-workers`) run on
+  the machine you launch from — rent a server for this, don't burn
+  your home box's processor.
+- **Other players trace too.** The worm wipes victim logs best-effort,
+  but your OWN machine's `/var/system.log` shows your activity to
+  anyone who roots you — harden first, and consider a hop.
+
 **`api_doc`** searches a **complete API reference generated from the
 game's own metadata** (316 entries — every type, method, signature, return
 value, and official usage example; see `tools/build-reference.mjs`). The
@@ -535,7 +572,8 @@ python tools/hook-client.py health  # poke the plugin manually
   game unpaused and ticking — Grey Hack pauses simulation when the window
   loses focus; reads/writes still work while paused, script execution
   does not.
-- Multiplayer is unsupported by design.
+- The agent harness is singleplayer-only by design; the standalone
+  tools (`exploit`/`worm`/`secure`) run in any world.
 
 ---
 

@@ -1,5 +1,10 @@
 // worm — epidemic harvesting worm (GreyLLM standard)
-// WORM_VERSION = "19" (daemon auto-installs/updates this file)
+// WORM_VERSION = "20" (daemon auto-installs/updates this file)
+//
+// STANDALONE: no agent, daemon, or bridge required — needs ~/exploit.src
+// beside it (and compiles it if the binary is missing). Works in
+// multiplayer: paste this into the in-game Code Editor, save as
+// ~/worm.src, Compile, then run ~/worm from any terminal.
 //
 // ARCHITECTURE (v14+): the worm is the FRONTIER DRIVER. It does not touch
 // victims itself — for each host it launches ~/exploit, which does the
@@ -414,8 +419,6 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	// entries for the state file: hosts we OWNED get kept with the
 	// durable creds; ssh-capable hosts can still be re-entered manually
 	ownedNow = containsStr(report, "OWNED ")
-	vhome = "/tmp/worms"
-	drops = []
 
 	// 3-7 (v14): the OLD post-login pipeline (drop/build/escalate/
 	// harvest/clean via connect_service shell) is retired — v14's
@@ -483,8 +486,6 @@ main = function(params)
 	maxT = 3
 	rndN = 2
 	autoInstall = false
-	maxMin = 10
-	idleMax = 3
 	quietEntry = false
 	mergeMode = false
 	fanoutN = null
@@ -505,10 +506,6 @@ main = function(params)
 				scanOnly = true
 			else if p == "-auto" then
 				autoInstall = true
-			else if p.indexOf("-max=") == 0 then
-				maxMin = val(p[5:])
-			else if p.indexOf("-idle=") == 0 then
-				idleMax = val(p[5:])
 			else if p == "-qe" then
 				quietEntry = true
 			else if p == "-merge" then
@@ -708,22 +705,13 @@ main = function(params)
 	cycle = 0
 	infected = 0
 	idleRun = 0
-	startT = floor(time())
-	if maxMin == null or maxMin < 1 then
-		maxMin = 10
-	end if
-	if idleMax == null or idleMax < 1 then
-		idleMax = 3
-	end if
-	wlog("worm: EPIDEMIC (bounded — max " + maxMin + " min, exits after " + idleMax + " idle cycles; state: " + statePath + ")")
+	wlog("worm: EPIDEMIC (immortal — no runtime cap, no idle shutdown; pass -g=N to bound cycles; state: " + statePath + ")")
 	while true
 		cycle = cycle + 1
 		if gens > 0 and cycle > gens then
 			wlog("worm: cycle cap reached")
 			break
 		end if
-		// immortal by directive: no runtime cap, no idle shutdown —
-		// -max/-idle are accepted but inert (command-line compatibility)
 		// random publics only when starved — probing costs CPU too
 		if frontier.len < 1 then
 			for rI in range(1, rndN)

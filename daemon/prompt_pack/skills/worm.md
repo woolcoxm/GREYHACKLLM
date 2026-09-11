@@ -48,13 +48,13 @@ terminal the player opens directly (or -auto autorun at login).
 
 ## CPU WEAR — the hard lesson
 
-The game DEGRADES hardware under sustained process load: an infinite
-worm variant ran for hours of game-time on the player's machine and the
-processor DIED. Rules: never run unbounded loops on a machine that
-matters; the worm self-caps (default: 10 min runtime, exits after 3
-idle cycles, probes randoms only when starved, 5s pacing); drive the
-epidemic with repeated bounded runs (`-g=`/`-max=`); heavy sustained
-work belongs on a rented/throwaway machine, never home.
+The game DEGRADES hardware under sustained process load: a processor
+was lost to an unbounded run. Per operator directive the worm is now
+IMMORTAL (no runtime cap, no idle shutdown — only 5s pacing and the
+ping gate restrain it): run it on hardware you can afford to lose,
+never your home box. The AGENT must still launch it bounded
+(run_program ~/worm <ip> -g=3) — an unbounded run blocks the serve
+loop forever.
 
 ## Constraints (verified)
 

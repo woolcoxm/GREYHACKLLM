@@ -1,5 +1,5 @@
 // worm — epidemic harvesting worm (GreyLLM standard)
-// WORM_VERSION = "21" (daemon auto-installs/updates this file)
+// WORM_VERSION = "22" (daemon auto-installs/updates this file)
 //
 // STANDALONE: no agent, daemon, or bridge required — needs ~/exploit.src
 // beside it (and compiles it if the binary is missing). Works in
@@ -547,6 +547,7 @@ main = function(params)
 	fanoutN = null
 	installWorkers = false
 	childMode = false
+	childBase = null
 	depth = 3
 	exfilPath = home_dir + "/Desktop/bankintel.txt"
 	statePath = home_dir + "/worm.state"
@@ -568,6 +569,8 @@ main = function(params)
 				mergeMode = true
 			else if p == "-child" then
 				childMode = true
+			else if p.indexOf("-base=") == 0 then
+				childBase = p[6:]
 			else if p.indexOf("-depth=") == 0 then
 				depth = val(p[7:])
 			else if p.indexOf("-fanout=") == 0 then
@@ -704,20 +707,26 @@ main = function(params)
 	// root mode: the player's home
 	homeBase = home_dir
 	if childMode then
+		// -base= tells the child where the parent scp'd its tools
+		// (the landing dir, which is not always /tmp — routers offer
+		// /home/guest). Default /tmp for legacy launches.
 		homeBase = "/tmp"
+		if childBase != null then
+			homeBase = childBase
+		end if
 		if exfilPath == home_dir + "/Desktop/bankintel.txt" then
-			exfilPath = "/tmp/loot.txt"
+			exfilPath = homeBase + "/loot.txt"
 		end if
 		if statePath == home_dir + "/worm.state" then
-			statePath = "/tmp/wstate"
+			statePath = homeBase + "/wstate"
 		end if
 	end if
 
 	globals.homeBase = homeBase
 	// digest: the root worm reports to the Desktop; children report to
-	// their /tmp sandbox (pulled loot carries the substance anyway)
+	// their sandbox (pulled loot carries the substance anyway)
 	if childMode then
-		globals.digestPath = "/tmp/wdigest.txt"
+		globals.digestPath = homeBase + "/wdigest.txt"
 	else
 		globals.digestPath = null
 	end if

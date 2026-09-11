@@ -1,5 +1,5 @@
 // worm — epidemic harvesting worm (GreyLLM standard)
-// WORM_VERSION = "23" (daemon auto-installs/updates this file)
+// WORM_VERSION = "24" (daemon auto-installs/updates this file)
 //
 // STANDALONE: no agent, daemon, or bridge required — needs ~/exploit.src
 // beside it (and compiles it if the binary is missing). Works in
@@ -594,7 +594,7 @@ main = function(params)
 			else if p.indexOf("-w=") == 0 then
 				pass = p[3:]
 			else if p.indexOf("-rp=") == 0 then
-				rootPass = p[3:]
+				rootPass = p[4:]
 			else if p.indexOf("-") != 0 then
 				seeds.push(p)
 			end if

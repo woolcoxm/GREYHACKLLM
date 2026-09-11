@@ -1,5 +1,5 @@
 // worm — epidemic harvesting worm (GreyLLM standard)
-// WORM_VERSION = "26" (daemon auto-installs/updates this file)
+// WORM_VERSION = "27" (daemon auto-installs/updates this file)
 //
 // STANDALONE: no agent, daemon, or bridge required — needs ~/exploit.src
 // beside it (and compiles it if the binary is missing). Works in
@@ -257,6 +257,24 @@ rndPublicIp = function(counter)
 		a = a % 100 + 30
 	end if
 	return a + "." + b + "." + c + "." + d
+end function
+
+isPrivateLan = function(ip)
+	// RFC1918-style check WITHOUT split('.'): split is regex-based and
+	// the dot explodes into single characters (the v23 lesson). Walk
+	// to the first octet instead.
+	if ip == null then
+		return true
+	end if
+	dot = ip.indexOf(".")
+	if dot == null then
+		return true
+	end if
+	o1 = val(ip[:dot])
+	if o1 == 10 or o1 == 127 or o1 == 192 or o1 == 172 then
+		return true
+	end if
+	return false
 end function
 
 // ---- state: "F|ip" frontier, "O|ip|user|pass" owned, "D|ip" done ----
@@ -741,7 +759,7 @@ main = function(params)
 	exSrc = readFileOr(comp, homeBase + "/exploit.src", null)
 	wormSrc = readFileOr(comp, homeBase + "/worm.src", null)
 	if exSrc == null then
-		print("worm: ~/exploit.src missing — no spread or escalation this run")
+		print("worm: ~/exploit.src missing beside the binary — spreading still works (binaries only), but tools cannot self-rebuild")
 	end if
 
 	ensureFolder(comp, home_dir + "/Desktop")
@@ -859,9 +877,17 @@ main = function(params)
 							devsR = rr.devices_lan_ip
 							if devsR != null then
 								for dv in devsR
-									if knownIp(frontier, owned, done, dv) == false and selfGuard(dv) == false then
-										frontier.push(dv)
-										found = found + 1
+									// PRIVATE addresses of a foreign network
+									// are unreachable from outside — the
+									// children discover them from WITHIN
+									// via their own scans. Pushing them
+									// here only pollutes the frontier
+									// with guaranteed-dead entries.
+									if isPrivateLan(dv) == false then
+										if knownIp(frontier, owned, done, dv) == false and selfGuard(dv) == false then
+											frontier.push(dv)
+											found = found + 1
+										end if
 									end if
 								end for
 							end if

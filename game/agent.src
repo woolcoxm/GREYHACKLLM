@@ -319,7 +319,9 @@ serve = function(comp)
 	cmdTarget = "pending " + globals.nonce
 	while stalled < STALL_TIMEOUT
 		// re-fetch every poll; done.txt/cmdflag.txt are written in place
-		// by the daemon and matched by this task's nonce
+		// by the daemon and matched by this task's nonce (strict match —
+		// stale foreign values must never satisfy the wait; the daemon
+		// verifies and retries its completion write to heal write races)
 		done = comp.File(BRIDGE_DIR + "/done.txt").get_content
 		if done == doneTarget then
 			print(comp.File(BRIDGE_DIR + "/response.txt").get_content)

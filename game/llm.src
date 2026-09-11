@@ -82,7 +82,9 @@ waitForReply = function(comp, nonce, timeout)
 	waited = 0
 	target = "done " + nonce
 	while waited < timeout
-		// re-fetch every poll; done.txt is written in place by the daemon
+		// re-fetch every poll; done.txt is written in place by the daemon.
+		// strict nonce match only — stale foreign values must never satisfy
+		// the wait (the daemon verifies+retries its completion write)
 		done = comp.File(BRIDGE_DIR + "/done.txt").get_content
 		if done == target then
 			return "done"

@@ -1380,10 +1380,7 @@ def run_cycle(config, transport, mock):
     log(f"request ({mode}): {prompt[:120]!r}")
     try:
         reply = handle_request(config, transport, prompt, mode, mock)
-        transport.write_many(
-            [("response.txt", reply), ("done.txt", f"done {nonce}")]
-        )
-        log(f"replied ({len(reply)} chars)")
+        complete_request(transport, nonce, reply)
     except urllib.error.HTTPError as exc:
         msg = error_message(exc)
         hint = {
@@ -1392,9 +1389,7 @@ def run_cycle(config, transport, mock):
             404: f" — unknown model '{config['model']}'? check config.json",
         }.get(exc.code, "")
         msg = f"error: API {msg}{hint}"
-        transport.write_many(
-            [("response.txt", msg), ("done.txt", f"done {nonce}")]
-        )
+        complete_request(transport, nonce, msg)
         print(f"[bridge] {msg}")
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", None) or exc
@@ -1402,16 +1397,43 @@ def run_cycle(config, transport, mock):
             f"error: cannot reach {config['base_url']} ({reason}). "
             "Check your internet connection."
         )
-        transport.write_many(
-            [("response.txt", msg), ("done.txt", f"done {nonce}")]
-        )
+        complete_request(transport, nonce, msg)
         print(f"[bridge] {msg}")
     except Exception as exc:  # noqa: BLE001 - surfaced to the in-game client
-        transport.write_many(
-            [("response.txt", f"error: {exc}"), ("done.txt", f"done {nonce}")]
-        )
+        complete_request(transport, nonce, f"error: {exc}")
         print(f"[bridge] error: {exc}")
     return True
+
+
+def complete_request(transport, nonce, reply):
+    """Write the reply + completion signal, then VERIFY the signal landed.
+
+    The game's own file flushes race the hook's tree push; a lost race
+    leaves done.txt at a stale value, which wedges the in-game serve loop
+    forever (it waits for an exact 'done <nonce>' match). Read back and
+    retry until it sticks."""
+    target = f"done {nonce}"
+    for attempt in range(3):
+        transport.write_many(
+            [("response.txt", reply), ("done.txt", target)]
+        )
+        try:
+            back = (transport.read("done.txt") or "").strip()
+        except Exception as exc:  # noqa: BLE001 - transient hook hiccup
+            back = f"(read failed: {exc})"
+        if back == target:
+            log(f"replied ({len(reply)} chars)")
+            return
+        print(
+            f"[bridge] done.txt verify failed (got {back!r}; retry "
+            f"{attempt + 1}/3)"
+        )
+        time.sleep(0.7)
+    print(
+        "[bridge] WARNING: done.txt kept failing verification — the game "
+        "terminal may need a nudge (close it and run agent again)"
+    )
+    log(f"replied ({len(reply)} chars, completion UNVERIFIED)")
 
 
 def watch(config, mock):

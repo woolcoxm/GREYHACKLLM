@@ -184,7 +184,11 @@ AGENT_TOOLS = [
         "output is not capturable, so this tool waits ~10s and returns "
         "whatever the program appended to the bridge out.txt (sysinfo "
         "reports the bridge dir) — have your programs append results "
-        "there.",
+        "there. IMPORTANT: the launched program is a separate process — "
+        "any shell or foothold it gains through exploits DIES when it "
+        "exits. Design each tool as one complete unit of work (gain "
+        "foothold → act → write results), or convert footholds into "
+        "credentials (recorded in notes.txt) before the tool exits.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -921,15 +925,54 @@ def save_history(history):
 
 
 def make_llm_fn(config, api_key):
-    """Uniform llm_fn(system, messages, with_tools) -> API response dict."""
+    """Uniform llm_fn(system, messages, with_tools) -> API response dict.
+
+    Transient failures (timeouts, connection drops, 429/5xx) are retried
+    so a network hiccup can't kill a whole mission; definitive API errors
+    (4xx) raise immediately.
+    """
     style = config["api_style"].lower()
+
+    def retrying(fn, attempts=3):
+        def call(system, messages, with_tools):
+            for i in range(attempts):
+                try:
+                    return fn(system, messages, with_tools)
+                except urllib.error.HTTPError as exc:
+                    transient = exc.code in (408, 429) or exc.code >= 500
+                    if not transient or i == attempts - 1:
+                        raise
+                    wait_s = 10 * (i + 1)
+                    print(
+                        f"[bridge] LLM HTTP {exc.code}; retry "
+                        f"{i + 1}/{attempts - 1} in {wait_s}s"
+                    )
+                    time.sleep(wait_s)
+                except (
+                    urllib.error.URLError,
+                    TimeoutError,
+                    ConnectionError,
+                    OSError,
+                ) as exc:
+                    if i == attempts - 1:
+                        raise
+                    wait_s = 10 * (i + 1)
+                    print(
+                        f"[bridge] LLM call failed ({exc!r}); retry "
+                        f"{i + 1}/{attempts - 1} in {wait_s}s"
+                    )
+                    time.sleep(wait_s)
+        return call
+
     if style == "anthropic":
-        return lambda system, messages, with_tools: anthropic_call(
-            config,
-            api_key,
-            system,
-            messages,
-            tools=AGENT_TOOLS if with_tools else None,
+        return retrying(
+            lambda system, messages, with_tools: anthropic_call(
+                config,
+                api_key,
+                system,
+                messages,
+                tools=AGENT_TOOLS if with_tools else None,
+            )
         )
 
     def openai_fn(system, messages, with_tools):

@@ -35,6 +35,19 @@ Every round follows the mission loop:
 
 Working rules:
 
+- **FOOTHOLDS ARE EPHEMERAL.** Every `run_program` is a separate process:
+  any shell / computer / file object it gains through exploits DIES when
+  the tool exits. Never "get a shell for later" — each tool must finish
+  its whole unit of work while it holds the foothold (explore, act, write
+  results to out.txt), or CONVERT the foothold into DURABLE access before
+  exiting: create a user, change a known password, or confirm working
+  credentials — and record them in notes.txt. Later tools reconnect with
+  `connect_service(ip, port, user, pass)` instead of re-exploiting.
+  Re-firing exploits you already succeeded with is wasted work and noise.
+- **NOTES ARE THE SOURCE OF TRUTH.** On resume ('continue' or a new
+  message in an old mission), read notes.txt and plan.txt FIRST — if a
+  fact or result is already recorded, use it; do not re-run recon or
+  re-fire exploits to re-learn what you already know.
 - Find facts in-game; never ask the user something you can determine
   yourself. BUT when a REQUIRED resource is missing and cannot be obtained
   in-game — a library not in /lib that apt-get cannot install, software

@@ -76,26 +76,37 @@ question, and don't call tools when the answer is already known.
 
 Recon and attack flow that works in-game:
 
-1. Local net: `router = get_router` → `router.devices_lan_ip`,
+1. **SKILLS FIRST**: before any attack mission, `load_skill("recon")`; when
+   you have a foothold, `load_skill("post-exploit")`; for money missions
+   `load_skill("bank-heist")`. The skills carry the full verified
+   techniques (escalation, phishing, wallet theft, password cracking).
+2. Local net: `router = get_router` → `router.devices_lan_ip`,
    `router.device_ports(ip)` (skip `port.is_closed`),
    `router.port_info(port)` → "http 1.0.0" style service+version.
-2. Remote target (needs its IP): `get_router(ip)`, or
+3. Remote target (needs its IP): `get_router(ip)`, or
    `metax = include_lib("/lib/metaxploit.so")` then
    `ns = metax.net_use(ip, port)` (null = nothing there) →
    `lib = ns.dump_lib` → the service's MetaLib.
-3. Find exploits: `areas = metax.scan(lib)` (memory addresses) →
+4. Find exploits: `areas = metax.scan(lib)` (memory addresses) →
    `details = metax.scan_address(lib, area)` → split on
    `"Unsafe check: "`, each segment's `<b>...</b>` is an exploit name;
    a `*` in the segment means it has requirements you must meet.
-4. Fire: `result = lib.overflow(area, exploitName)` — returns `shell`,
+5. Fire: `result = lib.overflow(area, exploitName)` — returns `shell`,
    `computer`, `file`, 1/0, or null. ALWAYS `typeof(result)` before use;
    try multiple areas/exploits until one returns something useful.
-5. With a shell: `result.host_computer` is the victim — read /etc/passwd,
+6. With a shell: `result.host_computer` is the victim — read /etc/passwd,
    change_password, create_user, etc. With `connect_service(ip, port,
    user, pass)` you can log back in as a user you created.
-6. Escalate to root: passwd-changing exploits on the victim, or exploit
-   `metax.load("/lib/init.so")`-style local libs. Prove root by reading
-   the victim's /etc/passwd or running privileged actions.
+7. Escalate to root: see the post-exploit skill. Prove root by reading
+   the victim's /etc/passwd or running a privileged action.
+
+**OPSEC IS NOT OPTIONAL.** Every machine you don't own logs your actions
+to its `/var/system.log` (source IP recorded; admins follow it back to
+you). For any mission touching another machine: load the opsec skill,
+work through a hop when practical, and at the end run the cleanup
+checklist (delete uploaded files, remove created users/rshells, restore
+modified files, clear logs on target and hops). Record every artifact you
+create on a victim in notes.txt so cleanup is complete.
 
 The full metaxploit/MetaLib/NetSession docs are in the GreyScript
 reference and via `api_doc("metaxploit")`, `api_doc("overflow")`.

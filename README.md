@@ -299,7 +299,29 @@ the bridge `out.txt`, so the model actually sees what its code did.
 | `compile_program` | game | Source → runnable binary (`get_shell.build`) |
 | `run_program` | game | Launch a binary, wait, collect its output from `out.txt` |
 | `api_doc` | daemon | Search the complete GreyScript API reference (below) |
+| `load_skill` | daemon | Load a mission playbook (see below) |
 | `ask_user` | daemon | Blocker question: stop work, ask you, resume on reply |
+
+**Mission skills** (`daemon/prompt_pack/skills/`) are focused playbooks the
+agent loads on demand via `load_skill(name)` — the system prompt carries
+only the index:
+
+| Skill | Covers |
+|---|---|
+| `recon` | Profiling targets: network/port/service scans, deep
+  fingerprinting, harvesting people's data for social engineering |
+| `post-exploit` | Foothold → root: interpreting `overflow` results,
+  cracking `/etc/passwd` hashes with the crypto lib, password-reset
+  exploits, kernel attacks, persistence, proof of root |
+| `opsec` | Covering tracks: how logging/tracing actually works
+  (`/var/system.log`), clearing logs, attacking through hop machines
+  (bounces), and the end-of-mission cleanup checklist (uploaded files,
+  created users, rshells, restored system files) |
+| `bank-heist` | Bank accounts and crypto wallets: password reuse,
+  scripted phishing via the mail API, wallet file theft, cashing out |
+
+The doctrine makes opsec mandatory: any mission touching someone else's
+machine ends with log clearing and artifact cleanup.
 
 **`api_doc`** searches a **complete API reference generated from the
 game's own metadata** (316 entries — every type, method, signature, return
@@ -419,6 +441,7 @@ game/llm.src        in-game chat client (paste as /bin/llm)
 daemon/bridge.py    the watch daemon: agent loop, tools, LLM calls
 daemon/prompt_pack/ system.md (mission doctrine) + greyscript_reference.md
                     (verified essentials + generated complete API appendix)
+                    + skills/ (opsec, recon, post-exploit, bank-heist playbooks)
 daemon/config.json.example
 tools/              validator, tests, API-reference generator, debug clients
 bridge.cmd          Windows launcher for the daemon

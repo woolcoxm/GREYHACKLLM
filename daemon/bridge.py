@@ -216,6 +216,20 @@ AGENT_TOOLS = [
         },
     },
     {
+        "name": "load_skill",
+        "description": "Load a mission playbook. Skills contain verified "
+        "game techniques (recon, exploitation, opsec/log clearing, bank "
+        "theft, social engineering) beyond the reference. Load the "
+        "matching skill BEFORE starting that kind of work — e.g. "
+        "load_skill('recon') before attacking, load_skill('opsec') before "
+        "and after touching any machine you don't own.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
+    },
+    {
         "name": "ask_user",
         "description": "You are BLOCKED on something only the user can fix: "
         "required software/library not installed and not obtainable "
@@ -307,6 +321,45 @@ API_REF_MARKER = (
     "<!-- api-reference: generated below, do not edit past this line -->"
 )
 
+SKILLS_DIR = DAEMON_DIR / "prompt_pack" / "skills"
+
+
+def skill_index():
+    """One-line index of available skills: name + when to load it."""
+    if not SKILLS_DIR.is_dir():
+        return []
+    entries = []
+    for p in sorted(SKILLS_DIR.glob("*.md")):
+        first = ""
+        for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.lower().startswith("load for:"):
+                first = line.split(":", 1)[1].strip()
+                break
+        entries.append((p.stem, first))
+    return entries
+
+
+def load_skill(name):
+    """Return a skill playbook by (fuzzy) name."""
+    if not SKILLS_DIR.is_dir():
+        return False, "no skills installed under prompt_pack/skills"
+    want = (name or "").strip().lower()
+    if not want:
+        return False, "load_skill: pass a skill name — " + ", ".join(
+            n for n, _ in skill_index()
+        )
+    squish = lambda s: s.replace("-", "").replace("_", "").replace(" ", "")
+    for p in sorted(SKILLS_DIR.glob("*.md")):
+        stem = p.stem.lower()
+        if want == stem or want in stem or stem in want or (
+            squish(want) == squish(stem)
+        ):
+            return True, p.read_text(encoding="utf-8", errors="replace")
+    return False, (
+        f"load_skill: no skill matches {name!r}. Available: "
+        + ", ".join(n for n, _ in skill_index())
+    )
+
 
 def build_system_prompt():
     parts = []
@@ -321,6 +374,17 @@ def build_system_prompt():
             # api_doc tool instead of bloating every request
             text = text.split(API_REF_MARKER, 1)[0]
         parts.append(text)
+    skills = skill_index()
+    if skills:
+        lines = ["", "## Mission skills (load_skill)", ""]
+        for sname, when in skills:
+            lines.append(f"- `{sname}` — {when}")
+        lines.append(
+            "\nLoad the matching skill with load_skill(name) BEFORE the "
+            "work it covers. opsec applies to every mission that touches "
+            "a machine you don't own."
+        )
+        parts.append("\n".join(lines))
     return "\n\n---\n\n".join(parts)
 
 
@@ -924,6 +988,9 @@ def dispatch_tool(config, transport, name, args, tag):
     if name == "api_doc":
         # daemon-side lookup, no in-game round-trip needed
         return api_doc_lookup((args or {}).get("query", ""))
+    if name == "load_skill":
+        # daemon-side playbook load, no in-game round-trip
+        return load_skill((args or {}).get("name", ""))
     if name == "ask_user":
         # daemon-side: turn-ending blocker question, no in-game round-trip
         q = (args or {}).get("question", "").strip()

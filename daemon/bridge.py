@@ -1081,7 +1081,32 @@ def dispatch_tool(config, transport, name, args, tag):
     ]
     if payload is not None:
         pairs.append(("payload.txt", payload))
-    transport.write_many(pairs)
+    # the game's tree flushes race these writes (observed live: command.txt
+    # landed, cmdflag regressed to a stale value and the serve loop never
+    # woke) — verify both landed, retry until they stick
+    flag_target = f"pending {nonce}".strip()
+    for attempt in range(3):
+        transport.write_many(pairs)
+        try:
+            flag_back = (transport.read("cmdflag.txt") or "").strip()
+            cmd_back = (transport.read("command.txt") or "").strip()
+        except Exception:  # noqa: BLE001 - transient hook hiccup
+            flag_back, cmd_back = "", ""
+        if flag_back == flag_target and cmd_back == line:
+            break
+        print(
+            f"[bridge] dispatch verify failed (cmdflag={flag_back!r}; "
+            f"retry {attempt + 1}/3)"
+        )
+        time.sleep(0.7)
+    else:
+        return (
+            False,
+            "error: the command could not be staged reliably on the bridge "
+            "(file write race). The in-game terminal may have died — if "
+            "tools keep failing, close it and run `agent` again, then "
+            "resend your message.",
+        )
 
     deadline = time.time() + config["tool_timeout"]
     while time.time() < deadline:

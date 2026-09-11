@@ -321,27 +321,50 @@ serve = function(comp)
 		// re-fetch every poll; done.txt/cmdflag.txt are written in place
 		// by the daemon and matched by this task's nonce (strict match —
 		// stale foreign values must never satisfy the wait; the daemon
-		// verifies and retries its completion write to heal write races)
-		done = comp.File(BRIDGE_DIR + "/done.txt").get_content
+		// verifies and retries its writes to heal tree-flush races).
+		// every poll is null-guarded: a file node momentarily missing from
+		// a raced tree snapshot must pause one tick, never crash the loop
+		doneF = comp.File(BRIDGE_DIR + "/done.txt")
+		if doneF == null then
+			wait(1)
+			stalled = stalled + 1
+			continue
+		end if
+		done = doneF.get_content
 		if done == doneTarget then
-			print(comp.File(BRIDGE_DIR + "/response.txt").get_content)
+			respF = comp.File(BRIDGE_DIR + "/response.txt")
+			if respF != null then
+				print(respF.get_content)
+			end if
 			return "done"
 		end if
-		cs = comp.File(BRIDGE_DIR + "/cmdflag.txt").get_content
+		cmdflagPoll = comp.File(BRIDGE_DIR + "/cmdflag.txt")
+		if cmdflagPoll == null then
+			wait(1)
+			stalled = stalled + 1
+			continue
+		end if
+		cs = cmdflagPoll.get_content
 		if cs == cmdTarget then
-			cmd = comp.File(BRIDGE_DIR + "/command.txt").get_content
-			cmdParts = cmd.split(";")
-			print("[agent] tool: " + cmdParts[0] + " " + cmdParts[1])
-			execute(comp, cmd)
-			// clear the flag with a tag-unique value so this command cannot
-			// re-execute (unique content = unique row = no dedup collisions)
-			parts = cmd.split(";")
-			ranTag = parts[parts.len - 1]
-			cmdflagF = comp.File(BRIDGE_DIR + "/cmdflag.txt")
-			if cmdflagF != null then
-				cmdflagF.set_content("ran " + ranTag)
+			cmdF = comp.File(BRIDGE_DIR + "/command.txt")
+			cmd = ""
+			if cmdF != null then
+				cmd = cmdF.get_content
 			end if
-			stalled = 0
+			if cmd != "" then
+				cmdParts = cmd.split(";")
+				print("[agent] tool: " + cmdParts[0] + " " + cmdParts[1])
+				execute(comp, cmd)
+				// clear the flag with a tag-unique value so this command cannot
+				// re-execute (unique content = unique row = no dedup collisions)
+				parts = cmd.split(";")
+				ranTag = parts[parts.len - 1]
+				cmdflagF = comp.File(BRIDGE_DIR + "/cmdflag.txt")
+				if cmdflagF != null then
+					cmdflagF.set_content("ran " + ranTag)
+				end if
+				stalled = 0
+			end if
 		end if
 		wait(1)
 		stalled = stalled + 1

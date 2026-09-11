@@ -20,6 +20,27 @@ sed -e 's/STALL_TIMEOUT = [0-9]*/STALL_TIMEOUT = 2/' \
 sed 's|"/lib/metaxploit.so"|"nosuchlib.so"|g' \
     game/exploit.src > "$WORK/exploit-nometax.src"
 
+# an EPIDEMIC harness: the real tool with its entry call replaced by a
+# wrapper that builds a stub ~/exploit binary, then runs the REAL main
+# with -cycles=1 — the stub ignores its args, so the driver must detect
+# the missing verdict, retire the host as crashed, save state, exit
+sed 's/^main(params)$//' game/exploit.src > "$WORK/epidemic.src"
+cat >> "$WORK/epidemic.src" <<'EOF'
+epiMain = function(params)
+	comp = get_shell.host_computer
+	bootSrc = "main = function(params)" + char(10) + char(9)
+	bootSrc = bootSrc + "print(" + char(34) + "CHILD-OK" + char(34) + ")" + char(10)
+	bootSrc = bootSrc + "end function" + char(10) + "main(params)" + char(10)
+	bootF = ensureFile(comp, home_dir + "/exploit.src", bootSrc)
+	if bootF != null then
+		fbuild(get_shell, bootF.path, home_dir)
+	end if
+	main(["-cycles=1", "-t=1", "-s=" + home_dir + "/test.state"])
+	return null
+end function
+epiMain(params)
+EOF
+
 PASS=0
 FAIL=0
 
@@ -64,19 +85,28 @@ SRCTGT=game/exploit.src
 
 check "plague: invalid ip rejected"       "invalid ip: 999.999.999.999" 999.999.999.999
 check "plague: assault reaches a verdict" "VERDICT OWNED" 1.2.3.4
-check "plague: sweep stops at root"       "SWEEP-STOP" 1.2.3.4
+check "plague: root w/o shell keeps hunting" "SWEEP-CONT" 1.2.3.4
 check "plague: planner secures durable"   "[secure]" 1.2.3.4
+check "plague: planner harvests on root"  "[harvest]" 1.2.3.4
+check "plague: crack + usepass rungs"     "CRACKED root=" 1.2.3.4
 check "plague: verdict names the access"  "VERDICT OWNED root" 1.2.3.4
 check "plague: verdict reports wiped log" ", log wiped)" 1.2.3.4
 check "plague: list mode fires nothing"   "(listed)" -l 1.2.3.4
 check "plague: rootless runs flagged honestly" "EVIDENCE-LEFT" -l 1.2.3.4
 check "plague: local -L ladder"           "LSTATUS" -L
+check "plague: local -L sweeps to a stop" "SWEEP-STOP" -L
 check "plague: local -L verdict"          "=== exploit done ===" -L
 check "plague: epidemic self-heal guard"  "no ~/exploit binary" -cycles=1
 check "plague: scan mode writes targets"  "scan complete" -scan
 
 SRCTGT="$WORK/exploit-nometax.src"
 check "plague: FATAL without metaxploit"  "FATAL no metaxploit" -L
+
+# epidemic driver: real main, stub child binary, bounded to 1 cycle
+SRCTGT="$WORK/epidemic.src"
+check "plague: epidemic starts immortal loop" "EPIDEMIC" ""
+check "plague: epidemic detects crashed child" "crashed mid-run" ""
+check "plague: epidemic completes its cycle"  "cycle 1" ""
 
 echo
 echo "passed: $PASS  failed: $FAIL"

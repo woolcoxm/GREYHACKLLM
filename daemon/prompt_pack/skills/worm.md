@@ -6,30 +6,69 @@ across the network", mass credential harvesting. The standard tool is
 universal exploit AND the epidemic worm. There is no separate worm
 anymore (`~/worm` is retired; `-auto` cleans stale /etc/init.d entries).
 
-## One tool, one brain (v30)
+## One tool, one brain (v32)
 
 Every assault is a REPLANNING loop, not a fixed script — after each
-action the planner re-reads world state and picks the next move:
+action the planner re-reads world state and picks the next move. THE
+GOAL is a launch-capable ROOT SHELL; a root computer object reads
+files but cannot launch or spread, so it is a stepping stone, never
+the finish line (the v31 "got root and did nothing" bug was exactly
+that confusion):
 
-1. root shell held -> secure a durable account, harvest as root, spread
-   children, clean up. Firing halts forever on that host (SWEEP-STOP).
-2. root password known -> USE it: connect_service login on ssh/ftp;
-   if refused, scp the binary + metaxploit.so onto the victim and run
-   `exploit -L -rp=<pw>` THERE — `get_shell("root", pw)` validates the
-   password on the box (the exact call `sudo -u root` wraps, verified
-   in the game's command script). A successful passchange registers its
-   `-g` password as the root candidate immediately.
-3. /etc/passwd readable -> crack ONLY the root hash (root owns the box),
-   then go to 2.
-4. vulns unfired -> fire (winners first, kernel port 0 last).
-5. fired out with any shell -> harvest what we can, spread depth-1,
-   clean. No shell at all -> clean, verdict NONE.
+1. ROOT ACCESS of any kind -> immediately secure a durable account +
+   harvest (bank/mail/wallet + the passwd table). create_user and
+   reading homes both work through a computer object.
+2. root SHELL held -> spread children, clean up, done. Firing halts
+   forever on that host (SWEEP-STOP).
+3. root computer only -> NOT done: keep firing for a shell foothold
+   (SWEEP-CONT), crack /etc/passwd (root reads it), log in as root
+   over ssh/ftp.
+4. root password known -> USE it: connect_service logins on the
+   ssh/ftp port (no shell needed); if refused, scp the binary +
+   metaxploit.so onto the victim and run `exploit -L -rp=<pw>` THERE —
+   `get_shell("root", pw)` validates the password on the box (the
+   exact call `sudo -u root` wraps, verified in the game's command
+   script). A successful passchange registers its `-g` password as
+   the root candidate immediately.
+5. user shell -> cat /etc/passwd, crack the root hash, become root.
+6. guest shell -> local privesc: the -L relay fires the victim's OWN
+   /lib from inside as the guest (guest -> user -> root rung). It
+   runs even with NO known password.
+7. vulns unfired -> fire (winners first, kernel port 0 last).
+8. fired out -> harvest what we can, spread if any shell, clean logs
+   best-effort, finish.
 
-Every action emits a phase heartbeat ([fire] [crack] [usepass] [secure]
-[harvest] [spread] [finish]) — any crash names its phase. All dangerous
+The -L relay child that gains root STOPS there (v33 flatten): it
+escalates, secures, harvests and reports — spreading is the PARENT's
+job through its own shell. Before this flatten, every relay spawned a
+synchronous epidemic tree inside the parent's launch call and single
+hosts took minutes with no visible progress. Every action emits a
+phase heartbeat ([fire] [crack] [usepass] [secure] [harvest]
+[spread] [finish]) — any crash names its phase. All dangerous
 intrinsics live in a validated SAFE ZONE in the source (enforced by
 tools/check-danger-calls.mjs); artifacts are tracked in a ledger and
 cleaned by exact path.
+
+WORM RESEARCH APPLIED (the who/what/when/why/how of real worms):
+- local-preference scanning (Code Red II) -> victim LAN enumeration
+  first, random publics only when starved (children probe 8, not 20)
+- hit-lists (Staniford's flash-worm paper) -> worm.wins: proven
+  exploit pairs fire FIRST on every host running the same lib version;
+  winners relay up the tree via W| loot lines so the whole epidemic
+  learns each win
+- payload staging (Slammer/Conficker) -> depth-0 children deploy the
+  tiny scan stager, not the full assault
+- CAMOUFLAGE / oligomorphic naming (1260/Conficker renaming) -> every
+  deployed copy lands under a randomized system-ish name (sysmon372,
+  netd81, svchost9...), never "exploit"; children learn their own name
+  via -bin= and mint fresh names for THEIR children
+- persistence (autorun.inf analogue) -> `-persist` (OPT-IN, evidence!)
+  copies the child into the VICTIM's /etc/init.d so the infection
+  auto-resumes at every game login
+- self-defense -> throttling (5s pacing), single-instance lock
+  (~/worm.lock, 10-min staleness, -force override) so two epidemics
+  never corrupt one state file, ledger cleanup + log wipes + honest
+  EVIDENCE-LEFT accounting
 
 ## Distributed execution
 

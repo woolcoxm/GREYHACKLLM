@@ -353,18 +353,37 @@ exploit -L -libdir=/lib       # LOCAL escalation: attack THIS machine's /lib
 exploit <ip> -o=/tmp/r -m=/lib/metaxploit.so   # when deployed ON a hop
 ```
 
-**The v30 planner.** Every assault is a *replanning loop*, not a fixed
+**The v33 planner.** Every assault is a *replanning loop*, not a fixed
 script — after each action the tool re-reads world state and picks the
-next move: root held → secure a durable account + harvest as root +
-spread (firing halts forever on that host); root password known → use it
-(connect_service login, else scp the binary onto the victim and run
-`exploit -L -rp=` there — `get_shell("root", pw)` validates the password
-on the box, the exact call `sudo -u root` wraps); `/etc/passwd` readable
-→ crack only root's hash; otherwise keep firing (known winners first,
-kernel last). "Got root but kept cracking" is structurally impossible:
-the password lives in one place and the planner checks it every cycle.
-Every phase emits a heartbeat (`[fire] [crack] [usepass] [secure]
-[harvest] [spread] [finish]`), so any crash names its phase.
+next move. The GOAL is a launch-capable **root shell**; a root computer
+object reads files but cannot launch or spread, so it is a stepping
+stone, never the finish line: root access of any kind → immediately
+secure a durable account + harvest (bank/mail/wallet + the passwd
+table); root shell → spread children and stop firing forever on that
+host; root computer only → keep firing for a shell (SWEEP-CONT) while
+cracking /etc/passwd and logging in as root (or as the durable account
+we created) over ssh/ftp; known root password → use it (direct logins,
+else scp the binary onto the victim and run `exploit -L -rp=` there —
+`get_shell("root", pw)` validates the password on the box, the exact
+call `sudo -u root` wraps); user shell → crack root and become root;
+guest shell → the -L relay fires the victim's OWN /lib from inside
+even with no password (guest → user → root). The relay child only
+escalates/harvests (v33 flatten) — spreading is the parent's job, so
+no host spawns a synchronous epidemic tree. Every phase emits a
+heartbeat (`[fire] [crack] [usepass] [secure] [harvest] [spread]
+[finish]`), so any crash names its phase.
+
+**Real-worm research applied.** Local-preference scanning (Code Red II)
+→ victim LANs enumerated first, random publics only as fallback;
+hit-lists (Staniford) → `worm.wins` proven exploits fire first and
+relay up the tree; payload staging → depth-0 children run the tiny
+scan stager; **oligomorphic camouflage** (one body, many shells) →
+every deployed copy lands under a randomized system-ish name
+(`sysmon372`, `netd81`), never "exploit", with children minting fresh
+names each generation; `-persist` (opt-in, evidence) installs the
+child into the victim's `/etc/init.d` so the infection auto-resumes at
+every game login; a single-instance lock (`~/worm.lock`, `-force`
+override) keeps two epidemics from corrupting one state file.
 
 Reliability mechanics (all learned live): every dangerous intrinsic
 (`File`, `launch`, `scp`, `include_lib`, `set_content`...) lives in a
@@ -543,6 +562,7 @@ node tools/build-reference.mjs
 .\bridge.cmd --heal             # repair bridge rows (sqlite transport)
 npm run check                   # syntax-validate the game scripts
 bash tools/test-game-scripts.sh # integration tests (mock game env)
+bash tools/mock-fleet-test.sh   # fleet test: 1000-host sweep + 40 full-ladder batches
 node tools/full-loop-test.mjs   # full-loop harness (real GreyScript)
 python tools/hook-client.py health  # poke the plugin manually
 ```

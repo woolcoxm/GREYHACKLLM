@@ -1800,7 +1800,6 @@ GAME_RUNTIME_PATH = "/bin/agent"
 ATTACK_TOOL_FILES = {
     # installed file -> its version marker constant
     "exploit.src": "EXPLOIT_VERSION",
-    "worm.src": "WORM_VERSION",
 }
 
 

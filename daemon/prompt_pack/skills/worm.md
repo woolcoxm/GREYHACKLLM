@@ -1,109 +1,94 @@
 # Skill: worm — epidemic bank-detail harvesting
 
 Load for: missions like "steal bank details from everything", "spread
-across the network", mass credential harvesting. The standard worm
-(`~/worm.src`, daemon-managed like ~/exploit.src) does the whole cycle.
+across the network", mass credential harvesting. The standard tool is
+`~/exploit.src` (daemon-managed) — since v30 it is ONE binary: the
+universal exploit AND the epidemic worm. There is no separate worm
+anymore (`~/worm` is retired; `-auto` cleans stale /etc/init.d entries).
 
-## Distributed execution (v17)
+## One tool, one brain (v30)
 
-The player's machine must NOT do the epidemic's compute — every
-processor death traced to exactly that. Now: when the exploit tool
-holds a shell foothold, it DELEGATES the next generation — drops
-worm+exploit sources on the victim, builds them there, and launches
-`worm -child` ON the victim (depth-limited tree, default 3). The
-victim's CPU attacks the next hosts, harvests, and writes loot to its
-/tmp; when the synchronous launch returns, the parent pulls the loot
-home and surfaces NEWTARGETs. CPU wear lands on the infected, where it
-belongs. `-depth=` tunes the tree depth.
+Every assault is a REPLANNING loop, not a fixed script — after each
+action the planner re-reads world state and picks the next move:
 
-## The worm's cycle (per host)
+1. root shell held -> secure a durable account, harvest as root, spread
+   children, clean up. Firing halts forever on that host (SWEEP-STOP).
+2. root password known -> USE it: connect_service login on ssh/ftp;
+   if refused, scp the binary + metaxploit.so onto the victim and run
+   `exploit -L -rp=<pw>` THERE — `get_shell("root", pw)` validates the
+   password on the box (the exact call `sudo -u root` wraps, verified
+   in the game's command script). A successful passchange registers its
+   `-g` password as the root candidate immediately.
+3. /etc/passwd readable -> crack ONLY the root hash (root owns the box),
+   then go to 2.
+4. vulns unfired -> fire (winners first, kernel port 0 last).
+5. fired out with any shell -> harvest what we can, spread depth-1,
+   clean. No shell at all -> clean, verdict NONE.
 
-The worm is the FRONTIER DRIVER — it never touches victims itself.
-For each host it launches `~/exploit <ip> -u=... -w=... -g=<rootpass>
--E=<exfil> -o=<wreport> -winners=<wins> -depth=<n>`, and the exploit
-runs the ASSAULT LADDER in-process while its foothold objects are
-alive:
+Every action emits a phase heartbeat ([fire] [crack] [usepass] [secure]
+[harvest] [spread] [finish]) — any crash names its phase. All dangerous
+intrinsics live in a validated SAFE ZONE in the source (enforced by
+tools/check-danger-calls.mjs); artifacts are tracked in a ledger and
+cleaned by exact path.
 
-1. **Entry**: full-fire EVERY vulnerability on EVERY open port — never
-   stop at the first foothold; collect all shells/computer objects and
-   rank them by access (root-class > user > guest, probed by what they
-   can read). Quiet `-q` mode starved the worm to zero entries once —
-   never default it.
-2. **Kernel**: when no root-class foothold emerged, fire port 0 too.
-3. **Crack + become (root only)**: /etc/passwd readable → decipher
-   ONLY root's hash (root owns the whole box; other accounts are
-   noise). Remote: connect_service on the ssh/ftp port. On the victim
-   (-L mode): `get_shell("root", pass)` — the LOCAL identity switch
-   (sudo is the terminal's wrapper around exactly this call, verified
-   in the game's own command script) — no ssh port needed. Re-harvest
-   when access upgrades.
-4. **Harvest**: every readable `*bank*`/`*mail*`/`*wallet*` file in
-   every `/home/*` plus the passwd table — appended to the exfil file
-   right through the foothold (default `~/Desktop/bankintel.txt`).
-5. **Escalate**: lacking root-class, scp THIS compiled binary +
-   metaxploit.so to the victim (never build there — guests cannot) and
-   run `exploit -L` on it — local /lib attacks for root.
-6. **Delegation**: with depth > 0, scp the compiled worm + exploit to
-   the victim and launch `worm -child -depth-1` there — the infected
-   machine attacks the NEXT generation. Loot bucket-brigades home:
-   each parent pulls its child's exfil file up after the synchronous
-   launch returns.
-7. **Stealth**: dropped artifacts deleted, victim `/var/system.log`
-   wiped (best-effort — root-owned). State saved after EVERY host.
+## Distributed execution
 
-WINNER lines (known-good
-exploit pairs per library version) accumulate in `~/worm.wins` and
-fire first on every host running the same version. The worm writes a
-per-host digest to `~/Desktop/wormreport.txt` — best privilege
-reached, files harvested, accounts cracked, new targets. Hosts are
-DONE forever once worked (no re-attacks, operator directive).
+When the planner holds a shell with depth > 0, it scps THIS binary
+(+ metaxploit.so when the victim lacks it, + the source best-effort) to
+a writable landing dir and launches `exploit -child -base=<landing>
+-depth-1 -cycles=1` ON the victim. The victim's CPU attacks the next
+generation; loot and new targets bucket-brigade home when the
+synchronous launch returns. `-depth=` tunes the tree (default 3 under
+-auto). At depth 0 the child still runs `exploit -scan` to enumerate the
+victim's network (F|ip lines relayed up as NEWTARGETs).
 
 ## Driving the epidemic
 
 ```
-compile_program ~/worm.src -> ~/worm        # once
-~/worm <seed-ip> -auto                      # LAUNCH ONCE
+compile_program ~/exploit.src -> ~/exploit   # once
+~/exploit <seed-ip> -auto                    # LAUNCH ONCE
+~/exploit <ip>                               # single-target assault
 ```
-The default run is INFINITE: infect -> harvest -> scan -> infect,
-breadth-first, until killed — random public IPs keep the frontier
-alive when networks are picked clean. `-auto` also installs the worm
-into the PLAYER's /etc/init.d (autorun, verified in game source): the
-epidemic auto-resumes at every game login. Kill with the terminal
-close / process kill; state (`~/worm.state`) resumes on next launch.
-Multiple terminals with different `-s=` state files = parallel
-epidemics (GreyScript has no threads — instances are the parallelism).
-`-fanout=N` automates it: splits the frontier across N shard state
-files and prints the N launch commands to paste into N terminals;
-`-install-workers=N` additionally installs N compiled launchers into
-/etc/init.d so every login auto-starts N parallel workers;
-`-merge` unions the shards back into ~/worm.state.
-Flags: `-g=` cap cycles (0=infinite), `-t=` hosts/cycle, `-r=` random
-IPs/cycle, `-depth=` infection-tree depth, `-o=` exfil, `-u/-w` creds,
-`-rp=` root password.
 
-IMPORTANT for the harness: an infinite worm blocks the serve loop
-forever. When launching via run_program, ALWAYS pass a bounded -g=
-(e.g. -g=3) and re-invoke for more; reserve raw infinite runs for a
-terminal the player opens directly (or -auto autorun at login).
+State (`~/worm.state`, format unchanged from the worm era: F|ip /
+O|ip|user|pass / D|ip) resumes across runs; hosts are DONE forever once
+worked (no re-attacks, operator directive). `-auto` installs the binary
+into the PLAYER's /etc/init.d (autorun, verified in game source) so the
+epidemic auto-resumes at every login. Per-host digest lands in
+`~/Desktop/wormreport.txt`; WINNER lines (known-good exploit pairs per
+library version) accumulate in `~/worm.wins` and fire first everywhere.
+
+Epidemic flags: `-cycles=N` cap (0 = INFINITE; legacy `-g=N` still
+accepted), `-t=` hosts/cycle, `-r=` random IPs/cycle when starved,
+`-depth=`, `-o=` exfil, `-s=` state file, `-u/-w` durable creds,
+`-rp=` root password. `-fanout=N` splits the frontier across N shard
+state files and prints the N terminal commands; `-install-workers=N`
+also installs N launchers into /etc/init.d; `-merge` unions shards back.
+
+IMPORTANT for the harness: an infinite epidemic blocks the serve loop
+forever. When launching via run_program, ALWAYS pass a bounded
+`-cycles=` (e.g. -cycles=3) and re-invoke for more; reserve raw
+infinite runs for a player-opened terminal (or the -auto autorun).
 
 ## CPU WEAR — the hard lesson
 
-The game DEGRADES hardware under sustained process load: a processor
-was lost to an unbounded run. Per operator directive the worm is now
-IMMORTAL (no runtime cap, no idle shutdown — only 5s pacing and the
-ping gate restrain it): run it on hardware you can afford to lose,
-never your home box. The AGENT must still launch it bounded
-(run_program ~/worm <ip> -g=3) — an unbounded run blocks the serve
-loop forever.
+The game DEGRADES hardware under sustained load: a processor was lost
+to an unbounded run. The epidemic is IMMORTAL by operator directive
+(only 5s pacing and the ping gate restrain it): run it on hardware you
+can afford to lose. Per-victim assaults run as child PROCESSES — a
+crash on one host can never kill the epidemic (no verdict in the report
+= host retired as "crashed", never looped).
 
 ## Constraints (verified)
 
-- Binary files (metaxploit.so) move between machines ONLY via
-  `shell.scp`; `get_content` refuses binaries. Sources move as text +
-  compile locally (`shell.build`).
-- Victims without metaxploit (and where scp fails) are harvested but
-  cannot escalate or scan — the worm moves on.
-- `rnd()` is deterministic; the worm mixes `time()` for per-run address
+- Binary files (metaxploit.so, the tool itself) move between machines
+  ONLY via `shell.scp`; `get_content` refuses binaries. Never build on
+  victims — guests cannot compile.
+- Without the metaxploit library the tool halts the epidemic with a
+  FATAL line (buy it in the software shop) instead of burning cycles.
+- Victims where scp fails are harvested but cannot escalate or spread —
+  the epidemic moves on.
+- `rnd()` is deterministic; the tool mixes `time()` for per-run address
   variety.
-- Every host is one pass — machines that get cleaned by admins simply
-  drop out; reruns re-seed from the frontier.
+- Every host is one pass — machines cleaned by admins simply drop out;
+  reruns re-seed from the frontier.

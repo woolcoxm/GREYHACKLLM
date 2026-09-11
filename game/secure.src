@@ -226,14 +226,16 @@ main = function(params)
 				print("  deleted ~/" + nm + ": " + f.delete)
 			end if
 		end for
-		initd = comp.File("/etc/init.d/worm")
-		if initd != null then
-			if dry then
-				print("  would delete /etc/init.d/worm")
-			else
-				print("  deleted /etc/init.d/worm: " + initd.delete)
+		for nmI in ["worm", "exploit", "xworker1", "xworker2", "xworker3", "xworker4", "xworker5", "xworker6", "xworker7", "xworker8"]
+			initd = comp.File("/etc/init.d/" + nmI)
+			if initd != null then
+				if dry then
+					print("  would delete /etc/init.d/" + nmI)
+				else
+					print("  deleted /etc/init.d/" + nmI + ": " + initd.delete)
+				end if
 			end if
-		end if
+		end for
 	end if
 
 	// ---- 6. the manual checklist (no game API for these) ----------------

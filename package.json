@@ -3,6 +3,6 @@
     "greybel-js": "^3.7.12"
   },
   "scripts": {
-    "check": "node tools/check-syntax.mjs game/agent.src game/exploit.src game/worm.src game/secure.src"
+    "check": "node tools/check-syntax.mjs game/agent.src game/exploit.src game/secure.src"
   }
 }

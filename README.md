@@ -35,8 +35,7 @@ The pieces that make this work, each installed once:
 | **GreyLLMHook** (BepInEx plugin) | Inside the game folder | Real-time bridge: exposes the game's live filesystem and terminal output over loopback TCP so the daemon can read/write files in milliseconds instead of scraping the save DB |
 | **In-game program** (`agent`) | On your in-game machine | Interactive chat + one-shot missions: submits requests, executes the model's tool commands, streams its thoughts, prints replies |
 | **Watch daemon** (`bridge.py`) | On your PC | The agent harness: talks to the model (GLM), dispatches its tool calls into the game, injects prompts/memory, guards the protocol |
-| **Universal `exploit` tool** (`game/exploit.src`) | Auto-installed to `~/exploit.src` in game | One binary, every target: flag-driven exploitation. Fires the break-in, then harvests bank/mail files, escalates to root with a victim-side local run, and delegates the next infection generation — all IN-PROCESS while the foothold is alive |
-| **Epidemic `worm`** (`game/worm.src`) | Auto-installed to `~/worm.src` in game | The frontier driver for mass harvesting: launches the exploit per host, tracks owned/failed state, spreads across networks + random public IPs forever, and lands stolen credentials in `~/Desktop/bankintel.txt` |
+| **Universal `exploit` tool** (`game/exploit.src`) | Auto-installed to `~/exploit.src` in game | One binary, every job (v30): planner-driven assault on any target AND the epidemic (`-auto`) — fires the break-in, cracks root, escalates, harvests bank/mail files, spreads to the next generation, all while the foothold is alive |
 | **`secure` hardener** (`game/secure.src`) | Run manually in game | One-shot multiplayer box hardener: rotates passwords, removes guest, strips bait files, kills services, removes contraband |
 
 ---
@@ -46,7 +45,7 @@ The pieces that make this work, each installed once:
 - **Grey Hack** (Steam). The **agent harness** (plugin + daemon +
   in-game runtime) is singleplayer-only — the plugin refuses
   multiplayer worlds by design. The attack tools themselves
-  (`exploit`, `worm`, `secure`) are standalone GreyScript and run in
+  (`exploit`, `secure`) are standalone GreyScript and run in
   any world (see "Standalone use & multiplayer").
 - **Windows** (the plugin and paths are Windows-oriented; the daemon itself
   is plain Python and runs anywhere).
@@ -112,13 +111,12 @@ The game programs are plain GreyScript source files in this repo:
 | Repo file | Save in game as | Purpose |
 |---|---|---|
 | `game/agent.src` | `/bin/agent` | The harness: interactive chat + one-shot missions + tool execution |
-| `game/exploit.src` | auto — see below | Universal exploitation tool |
-| `game/worm.src` | auto — see below | Epidemic harvesting worm |
+| `game/exploit.src` | auto — see below | Universal exploit tool + epidemic (one binary since v30) |
 | `game/secure.src` | `~/secure.src` (optional) | Multiplayer box hardener |
 
 Only `agent` needs the manual paste (below). The daemon auto-installs and
-auto-updates `exploit.src`/`worm.src` into your home folder by version
-marker (and the worm re-compiles itself when its source changes), and
+auto-updates `exploit.src` into your home folder by version marker
+(recompile `~/exploit` after an update — see "Updating"), and
 `secure.src` you copy in yourself only if you're taking the box online.
 
 To install the agent runtime:
@@ -253,7 +251,8 @@ agent -s pscan        # afterwards: save the last code block to ~/pscan
 | `agent -r` | Print the last reply again |
 | `agent -s <name>` | Save the last code block from a reply to `~/<name>` |
 | `/new` (any terminal, even mid-mission) | Cancel the active mission and clear ALL context — history, plan, notes — for a fresh engagement |
-| `worm [ip ...]` | Launch the epidemic (see below); `-g=N` caps cycles, `-auto` survives logins |
+| `exploit [ip ...] -auto` | Launch the epidemic (see below); `-cycles=N` caps cycles (legacy `-g=N`), `-auto` survives logins |
+| `exploit <ip>` | Single-target assault with the v30 planner |
 | `secure` | Harden your box for multiplayer (run as root) |
 
 ### A note on missions and what to give the agent
@@ -336,9 +335,9 @@ machine ends with log clearing and artifact cleanup.
 
 ### The standard attack toolset
 
-The agent maintains **one universal exploitation tool** instead of writing
-per-target attack programs. `~/exploit.src` is auto-installed/updated by
-the daemon (compile once with `compile_program`, reuse the `~/exploit`
+The agent maintains **one universal tool** instead of writing per-target
+attack programs. `~/exploit.src` (v30) is auto-installed/updated by the
+daemon (compile once with `compile_program`, reuse the `~/exploit`
 binary forever). Flags carry everything target-specific:
 
 ```
@@ -349,29 +348,35 @@ exploit <ip> -g=newpass       # overflow arg (password-change/LAN-ip vulns)
 exploit <ip> -u=bk -w=pw      # durable user to convert footholds into
 exploit <ip> -l               # list vulns + requirements, fire nothing
 exploit <ip> -E=/path         # exfil: harvested bank/mail files append here
-exploit <ip> -depth=2         # delegate the next worm generation to victims
+exploit <ip> -depth=2         # spread child generations from the victim
 exploit -L -libdir=/lib       # LOCAL escalation: attack THIS machine's /lib
 exploit <ip> -o=/tmp/r -m=/lib/metaxploit.so   # when deployed ON a hop
 ```
 
-The harvest happens **at foothold time, in-process** — the v19 assault
-ladder: full-fire *every* vuln on every port (never stop at the first
-foothold), rank all footholds by what they can read (root-class >
-user > guest), fire the kernel attack when rootless, crack
-`/etc/passwd` and become the strongest account where ssh exists
-(there is no `su` in Grey Hack — a network login is the only identity
-switch), harvest every `*bank*`/`*mail*`/`*wallet*` file plus the
-passwd table to `-E`, escalate locally by **scp'ing the compiled
-binary** to the victim and running `-L` there (never build on the
-victim — guest shells can't), and (with `-depth>0`) scp + launch the
-worm there so the **victim's CPU** attacks the next generation. Loot
-bucket-brigades home: each parent pulls its child's exfil file up
-through its foothold, hop by hop, into `~/Desktop/bankintel.txt`.
-known-winning
-exploit pairs accumulate and fire first on any host running the same
-library version. The worm also writes a per-host digest to
-`~/Desktop/wormreport.txt` — best privilege reached, files harvested,
-accounts cracked — so a dead rung can never hide.
+**The v30 planner.** Every assault is a *replanning loop*, not a fixed
+script — after each action the tool re-reads world state and picks the
+next move: root held → secure a durable account + harvest as root +
+spread (firing halts forever on that host); root password known → use it
+(connect_service login, else scp the binary onto the victim and run
+`exploit -L -rp=` there — `get_shell("root", pw)` validates the password
+on the box, the exact call `sudo -u root` wraps); `/etc/passwd` readable
+→ crack only root's hash; otherwise keep firing (known winners first,
+kernel last). "Got root but kept cracking" is structurally impossible:
+the password lives in one place and the planner checks it every cycle.
+Every phase emits a heartbeat (`[fire] [crack] [usepass] [secure]
+[harvest] [spread] [finish]`), so any crash names its phase.
+
+Reliability mechanics (all learned live): every dangerous intrinsic
+(`File`, `launch`, `scp`, `include_lib`, `set_content`...) lives in a
+validated SAFE ZONE in the source — enforced by
+`tools/check-danger-calls.mjs` — because GreyScript has no try/catch
+and one bad argument kills the process; artifacts are tracked in a
+ledger and cleaned by exact path (no blind delete sweeps); harvest
+re-runs automatically whenever access upgrades; loot bucket-brigades
+home through the infection tree into `~/Desktop/bankintel.txt`;
+known-winning exploit pairs accumulate in `~/worm.wins` and fire first
+on any host running the same library version; a per-host digest lands
+in `~/Desktop/wormreport.txt` so a dead rung can never hide.
 
 Per-target knowledge (which area/name worked) lives in the agent's
 `notes.txt` — never in code.
@@ -385,34 +390,38 @@ the lib home, then `lib_intel` the copy — then fire only the chosen vuln
 with `-a`/`-x` (+ `-g` for password changes). Vuln sets are fixed per
 library version, so recorded tables are durable world intel.
 
-### The epidemic worm
+### The epidemic
 
-`~/worm` is the frontier driver for mass harvesting ("steal bank details
-from everything"):
+`~/exploit -auto` is the mass-harvesting mode ("steal bank details from
+everything") — the same binary as the assault tool, driving a frontier:
 
 ```
-compile_program ~/worm.src -> ~/worm    # once; it re-compiles itself later
-~/worm <seed-ip>                        # FOREVER (see warning)
-~/worm <seed-ip> -g=5                   # bounded: 5 infection cycles
-~/worm <seed-ip> -auto                  # + auto-resume at every login
-~/worm -fanout=4                        # print 4 shard commands (parallel)
-~/worm -install-workers=4               # + init.d launchers for login-time
-~/worm -merge                           # union shards back into worm.state
+compile_program ~/exploit.src -> ~/exploit   # once after each update
+~/exploit <seed-ip> -auto                    # FOREVER (see warning)
+~/exploit <seed-ip> -cycles=5                # bounded: 5 infection cycles
+~/exploit -fanout=4                          # print 4 shard commands (parallel)
+~/exploit -install-workers=4                 # + init.d launchers for login-time
+~/exploit -merge                             # union shards back into worm.state
+~/exploit -scan -o=/tmp/scan.txt             # network enumeration (F|ip lines)
 ```
 
-Per host it launches `~/exploit` with `-E`/`-depth` and reads the report;
-owned hosts, credentials and the frontier persist in `~/worm.state`
-(saved after every host — any death resumes). Key flags: `-t=` hosts per
-cycle, `-r=` random public IPs per cycle, `-u/-w/-rp=` credentials (all
-validated alphanumeric before anything fires), `-depth=` infection-tree
-depth. Stolen credentials land in `~/Desktop/bankintel.txt`.
+Per host it launches itself as a CHILD PROCESS (a crash on one host can
+never kill the epidemic — a report without a verdict retires the host),
+reads the report's VERDICT/WINNER/NEWTARGET lines, and records state.
+Owned hosts, credentials and the frontier persist in `~/worm.state`
+(format unchanged from the worm era; saved after every host — any death
+resumes). Key flags: `-t=` hosts per cycle, `-r=` random public IPs per
+cycle when starved, `-u/-w/-rp=` credentials (all validated
+alphanumeric before anything fires), `-depth=` infection-tree depth
+(default 3; children get depth−1 and `-cycles=1`). Stolen credentials
+land in `~/Desktop/bankintel.txt`.
 
 > **CPU warning:** the game degrades hardware under sustained load. By
-> operator directive the worm is immortal (no runtime cap, no idle
+> operator directive the epidemic is immortal (no runtime cap, no idle
 > shutdown — only 5s pacing and ping gates restrain it), and per the
 > distributed-execution design the heavy work runs on *infected*
 > machines. Still: run it on hardware you can afford to lose, and have
-> the agent launch it with a bounded `-g=`.
+> the agent launch it with a bounded `-cycles=`.
 
 ### Hardening a box for multiplayer
 
@@ -435,7 +444,7 @@ port forwards, `apt-get upgrade`).
 
 ### Standalone use & multiplayer
 
-`exploit`, `worm`, and `secure` are **pure GreyScript — no agent, no
+`exploit` and `secure` are **pure GreyScript — no agent, no
 daemon, no plugin, no bridge folder required.** In a world without the
 GreyLLM bridge, the exploit report simply lands in `~/exploit_out.txt`
 and everything else (state, exfil, logs) already lives in your home.
@@ -447,23 +456,20 @@ To run the tools in a multiplayer world:
 
 1. Open the in-game **Code Editor**, create a file, paste all of
    `game/exploit.src`, save it as `~/exploit.src`, press **Compile**.
-2. Repeat for `game/worm.src` → `~/worm.src` (compiling the worm is
-   optional — it builds `~/exploit` itself when the binary is missing,
-   but it needs `~/exploit.src` beside it).
-3. Optionally paste `game/secure.src` → `~/secure.src` and harden your
+2. Optionally paste `game/secure.src` → `~/secure.src` and harden your
    box **before** anything else (see above).
-4. From any terminal: `~/worm <ip>` — every flag from the
-   singleplayer workflow works identically.
+3. From any terminal: `~/exploit <ip>` for one target or
+   `~/exploit -auto` for the epidemic — every flag works identically.
 
 Multiplayer-specific cautions:
 
 - **No auto-updates.** The daemon isn't there to reinstall the tools;
-  after a repo update, re-paste the sources yourself.
+  after a repo update, re-paste the source yourself.
 - **CPU wear lands on whatever box drives the epidemic.** The frontier
   driver (and the login-time workers from `-install-workers`) run on
   the machine you launch from — rent a server for this, don't burn
   your home box's processor.
-- **Other players trace too.** The worm wipes victim logs best-effort,
+- **Other players trace too.** The tool wipes victim logs best-effort,
   but your OWN machine's `/var/system.log` shows your activity to
   anyone who roots you — harden first, and consider a hop.
 
@@ -507,7 +513,7 @@ caught and fed back without wasting an in-game round trip.
 |---|---|
 | `daemon/*` or `daemon/prompt_pack/*` | Restart `bridge.cmd`. Prompts and reference load fresh on every request |
 | `game/agent.src` | Nothing — the daemon auto-installs it into `/bin/agent` (check `daemon.log` for "installed game runtime") |
-| `game/exploit.src` / `game/worm.src` | Nothing — the daemon auto-installs by version marker; delete the old `~/exploit`/`~/worm` binary (or just relaunch the worm) so the fresh source re-compiles |
+| `game/exploit.src` | Nothing — the daemon auto-installs by version marker; **recompile** (`compile_program ~/exploit.src`) so the running binary matches, and delete the retired `~/worm` if it exists |
 | `game/secure.src` | Re-paste it into the game yourself (it is not daemon-managed) |
 | `GreyLLMHook/*` | Rebuild + copy the DLL, restart the game |
 
@@ -583,7 +589,7 @@ python tools/hook-client.py health  # poke the plugin manually
   loses focus; reads/writes still work while paused, script execution
   does not.
 - The agent harness is singleplayer-only by design; the standalone
-  tools (`exploit`/`worm`/`secure`) run in any world.
+  tools (`exploit`/`secure`) run in any world.
 
 ---
 
@@ -592,8 +598,8 @@ python tools/hook-client.py health  # poke the plugin manually
 ```
 GreyLLMHook/        BepInEx plugin C# source (the game-side bridge)
 game/agent.src      in-game harness runtime (auto-installed to /bin/agent)
-game/exploit.src    universal flag-driven exploitation tool (auto-installed to ~/)
-game/worm.src       epidemic harvesting worm (auto-installed to ~/)
+game/exploit.src    the plague tool: universal exploit + epidemic in one
+                    binary (v30+, auto-installed to ~/exploit.src)
 game/secure.src     one-shot multiplayer box hardener (manual install)
 daemon/bridge.py    the watch daemon: agent loop, tools, LLM calls
 daemon/prompt_pack/ system.md (mission doctrine) + greyscript_reference.md
@@ -601,6 +607,7 @@ daemon/prompt_pack/ system.md (mission doctrine) + greyscript_reference.md
                     + skills/ (recon, post-exploit, opsec, bank-heist, worm
                     playbooks)
 daemon/config.json.example
-tools/              validator, tests, API-reference generator, debug clients
+tools/              validator, danger-call lint, tests, API-reference
+                    generator, debug clients
 bridge.cmd          Windows launcher for the daemon
 ```

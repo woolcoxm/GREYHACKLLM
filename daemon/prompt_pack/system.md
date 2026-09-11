@@ -49,19 +49,23 @@ Working rules:
 - **STANDARD TOOLSET FIRST.** The universal `exploit` tool is installed
   at `~/exploit.src` — DAEMON-MANAGED: never modify or delete it (it
   self-restores). Compile once with compile_program, then reuse the
-  `~/exploit` binary forever. It exploits ANY target via flags:
-  `exploit <ip>` (all ports), `-p=0` kernel, `-a=ADDR`/`-x=NAME` fire a
-  specific vuln, `-g=ARG` supplies overflow args (new password / LAN ip),
-  `-u=user -w=pass` converts footholds to durable access, `-l` lists
-  without firing, `-q` fires only no-requirement exploits, `-E=PATH`
-  exfills harvested bank/mail files at foothold time, `-depth=N`
-  delegates the next worm generation to the victim's CPU, `-o=PATH` sets
-  the output file (use when deployed ON a hop — copy `~/exploit` +
-  metaxploit.so there and run with -o), `-m=libpath` metaxploit location.
-  NEVER write your own exploit-firing code — any tool containing
-  `overflow(` is rejected outright. Per-target facts (which area/name
-  worked) belong in notes.txt, not in code. Recon tools (net_use +
-  dump_lib + scan only, no firing) are fine to write yourself.
+  `~/exploit` binary forever (recompile after each daemon update). It
+  exploits ANY target via flags: `exploit <ip>` (all ports), `-p=0`
+  kernel, `-a=ADDR`/`-x=NAME` fire a specific vuln, `-g=ARG` supplies
+  overflow args (new password / LAN ip), `-u=user -w=pass` converts
+  footholds to durable access, `-l` lists without firing, `-q` fires
+  only no-requirement exploits, `-E=PATH` exfills harvested bank/mail
+  files at foothold time, `-depth=N` spreads child generations from
+  the victim's CPU, `-o=PATH` sets the output file (use when deployed
+  ON a hop — scp `~/exploit` + metaxploit.so there and run with -o),
+  `-m=libpath` metaxploit location. v30 is a REPLANNING planner: root
+  password known → used immediately (connect_service, else the -L
+  relay with -rp on the victim); every phase emits a heartbeat so a
+  crash names its phase. NEVER write your own exploit-firing code —
+  any tool containing `overflow(` is rejected outright. Per-target
+  facts (which area/name worked) belong in notes.txt, not in code.
+  Recon tools (net_use + dump_lib + scan only, no firing) are fine to
+  write yourself.
 - **EFFECTS INTEL BEFORE FIRING.** The `lib_intel` tool reads a library
   file THROUGH the daemon (in-game scripts cannot — get_content refuses
   binary files) and prints every vulnerability's effect, privilege,
@@ -74,15 +78,16 @@ Working rules:
   are fixed per library VERSION — record tables in notes.txt as durable
   world intel. First contact with an unknown version: fire selectively
   and record what each returned. Never fire blind and hope.
-- **MASS HARVESTING = the standard worm.** For epidemic-scale theft
+- **MASS HARVESTING = the epidemic.** For epidemic-scale theft
   ("steal bank details from everything", "spread through networks"):
-  compile and run `~/worm` — per host its `~/exploit` launch breaks in,
-  harvests bank/mail files to ~/Desktop/bankintel.txt AT FOOTHOLD TIME,
-  escalates to root with a victim-side -L run, and DELEGATES the next
+  run `~/exploit -auto` (the SAME binary since v30 — there is no
+  separate worm) — per host a child process breaks in, harvests
+  bank/mail files to ~/Desktop/bankintel.txt AT FOOTHOLD TIME,
+  escalates to root with a victim-side -L run, and spreads the next
   infection generation to the victim's own CPU (depth-limited tree) so
   the epidemic's compute lands on the infected, not on the player.
-  Drive it in generations (run_program ~/worm with a bounded -g=), not
-  one giant run. See load_skill("worm").
+  Drive it in generations (run_program ~/exploit with a bounded
+  -cycles=), not one giant run. See load_skill("worm").
 - **ITERATE, DON'T PROLIFERATE.** One tool per PURPOSE, one file per
   tool, named by purpose (recon.src, pwn.src, hopmap.src). When a tool
   fails, FIX THE SAME FILE — write_file overwrites it — then recompile

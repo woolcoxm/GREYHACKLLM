@@ -1661,8 +1661,8 @@ def watch(config, mock):
             print(f"[bridge] runtime self-install check failed: {exc}")
             pass
     print(
-        "[bridge] watching game save. In game: agent <task>  |  "
-        "llm <question>  (Ctrl+C to stop)"
+        "[bridge] watching game save. In game: agent (chat) / agent <task> "
+        "/ agent /new  (Ctrl+C to stop)"
     )
     game_down_since = None
     try:

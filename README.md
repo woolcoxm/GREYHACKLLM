@@ -33,7 +33,7 @@ Three pieces make this work, and each has to be installed once:
 | Piece | Where it lives | What it does |
 |---|---|---|
 | **GreyLLMHook** (BepInEx plugin) | Inside the game folder | Real-time bridge: exposes the game's live filesystem over loopback TCP so the daemon can read/write files in milliseconds instead of scraping the save DB |
-| **In-game programs** (`agent`, `llm`) | On your in-game machine | Submit your requests, execute the model's tool commands inside the game, print replies |
+| **In-game program** (`agent`) | On your in-game machine | Interactive chat + one-shot missions: submits requests, executes the model's tool commands, streams its thoughts, prints replies |
 | **Watch daemon** (`bridge.py`) | On your PC | The agent harness: talks to the model (GLM), dispatches its tool calls into the game, injects prompts/memory, guards the protocol |
 
 ---
@@ -106,15 +106,13 @@ The two game programs are plain GreyScript source files in this repo:
 | Repo file | Save in game as | Purpose |
 |---|---|---|
 | `game/agent.src` | `/bin/agent` | The harness: interactive chat + one-shot missions + tool execution |
-| `game/llm.src` | `/bin/llm` | Lightweight plain chat client (no tools) |
 
 To install them:
 
 1. Launch your singleplayer world and open a terminal.
 2. Open the in-game **Code Editor** (from the desktop).
 3. Create a new file, paste the entire contents of `game/agent.src` from
-   this repo into it, and save it as `/bin/agent` (extensionless). Repeat
-   with `game/llm.src` as `/bin/llm`.
+   this repo into it, and save it as `/bin/agent` (extensionless).
    - If `/bin` is not writable in your world, save them into your home
      folder instead (`/home/<you>/agent`) — the game terminal searches the
      current directory first, so they still run by name from `~`.
@@ -126,10 +124,11 @@ To install them:
    protocol files, prints where they live, and sends a PING through the
    whole chain.
 
-**When do you need to redo this?** Only when `game/agent.src` or
-`game/llm.src` change in the repo (the daemon usually tells you — if the
-model reports `unknown op` errors, your in-game copy is outdated). The
-plugin, the daemon, and the prompts update without any in-game pasting.
+**When do you need to redo this?** Almost never. The in-game runtime
+carries `AGENT_VERSION`, and the daemon re-installs `/bin/agent` through
+the hook automatically at startup (and after each mission) whenever the
+repo ships a newer version — no pasting. This first paste is only needed
+because a fresh world has no runtime yet.
 
 ### Part 3 — Set up the daemon (one time per PC)
 
@@ -231,10 +230,6 @@ agent -s pscan        # afterwards: save the last code block to ~/pscan
 
 ### Plain chat (no tools)
 
-`llm "question"` for one-shot Q&A about GreyScript/the game; `llm` with no
-arguments for an interactive chat session. Useful when you just want an
-answer, not actions.
-
 ### All in-game commands
 
 | Command | What it does |
@@ -245,8 +240,7 @@ answer, not actions.
 | `agent -w` | Re-attach to the current task's tool loop (if you closed the terminal) |
 | `agent -r` | Print the last reply again |
 | `agent -s <name>` | Save the last code block from a reply to `~/<name>` |
-| `llm` / `llm <prompt>` | Interactive / one-shot plain chat |
-| `llm -t` `-r` `-w` `-s` | Same flags as agent |
+| `/new` (any terminal, even mid-mission) | Cancel the active mission and clear ALL context — history, plan, notes — for a fresh engagement |
 
 ### A note on missions and what to give the agent
 
@@ -360,7 +354,7 @@ caught and fed back without wasting an in-game round trip.
 | What changed in repo | What you do |
 |---|---|
 | `daemon/*` or `daemon/prompt_pack/*` | Restart `bridge.cmd`. Prompts and reference load fresh on every request |
-| `game/agent.src` / `game/llm.src` | Re-paste into the game (Part 2 above). Watch for `unknown op` tool errors — they mean the in-game copy is stale |
+| `game/agent.src` | Nothing — the daemon auto-installs it into `/bin/agent` (check `daemon.log` for "installed game runtime") |
 | `GreyLLMHook/*` | Rebuild + copy the DLL, restart the game |
 
 Regenerate the API reference appendix after a Grey Hack update:
@@ -438,7 +432,6 @@ python tools/hook-client.py health  # poke the plugin manually
 ```
 GreyLLMHook/        BepInEx plugin C# source (the game-side bridge)
 game/agent.src      in-game harness runtime (paste as /bin/agent)
-game/llm.src        in-game chat client (paste as /bin/llm)
 daemon/bridge.py    the watch daemon: agent loop, tools, LLM calls
 daemon/prompt_pack/ system.md (mission doctrine) + greyscript_reference.md
                     (verified essentials + generated complete API appendix)

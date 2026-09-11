@@ -93,10 +93,10 @@ function check(name, cond, detail = '') {
 	console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
 }
 
-// ---- Scenario 1: chat (llm.src) ----
+// ---- Scenario 1: one-shot request round-trip (agent.src) ----
 async function testChat() {
-	console.log('\n=== chat: llm.src hello there ===');
-	const { interpreter, env, output } = await setup('game/llm.src');
+	console.log('\n=== one-shot: agent.src hello there ===');
+	const { interpreter, env, output } = await setup('game/agent.src');
 	interpreter.params = ['hello', 'there'];
 	const runPromise = interpreter.run();
 
@@ -107,19 +107,19 @@ async function testChat() {
 	);
 	const status = readBridge(env, 'status.txt') || '';
 	const nonce = status.split(' ')[1];
-	check('chat: status busy with counter nonce', /^\d+$/.test(nonce), status);
+	check('one-shot: status busy with counter nonce', /^\d+$/.test(nonce), status);
 	check(
-		'chat: prompt delivered',
+		'one-shot: prompt delivered',
 		readBridge(env, 'prompt.txt') === 'hello there'
 	);
-	check('chat: done.txt pre-aligned by game', (readBridge(env, 'done.txt') || '').startsWith('w'));
+	check('one-shot: done.txt pre-aligned by game', (readBridge(env, 'done.txt') || '').startsWith('w'));
 
 	writeBridge(env, 'response.txt', 'Hi! This is the daemon speaking.');
 	writeBridge(env, 'done.txt', `done ${nonce}`);
 
 	await runPromise;
 	check(
-		'chat: reply printed in game',
+		'one-shot: reply printed in game',
 		output.lines.some((l) => l.includes('daemon speaking')),
 		output.lines.slice(-3).join(' | ')
 	);
@@ -194,7 +194,7 @@ async function testAgent() {
 // ---- Scenario 3: stale done must NOT satisfy a new request ----
 async function testStaleDone() {
 	console.log('\n=== stale-done protection ===');
-	const { interpreter, env, output } = await setup('game/llm.src');
+	const { interpreter, env, output } = await setup('game/agent.src');
 	// pre-poison done.txt with an old nonce value
 	interpreter.params = ['second', 'message'];
 	const runPromise = interpreter.run();

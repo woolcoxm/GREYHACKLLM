@@ -1,25 +1,53 @@
 // GreyLLM agent — in-game harness runtime for Grey Hack (singleplayer)
 //
-// This is the "hands" of the AI. The daemon (daemon/bridge.py) runs the
-// model; when the model wants to inspect or change your machine, the daemon
-// writes a tool command into /tmp/llm/command.txt and THIS program executes
-// it: listing folders, reading/writing files, running programs.
+// This is the "hands" of the AI. The daemon (daemon/bridge.py) on your PC
+// runs the model; when the model wants to inspect or change your in-game
+// machine, the daemon stages a tool command on the bridge and THIS program
+// executes it: listing folders, reading/writing/deleting files, compiling
+// source into binaries, launching programs.
 //
-// Usage (from your in-game terminal):
-//   agent <task...>   give the AI a task; it works until done, then the
-//                         final answer is printed here
-//   agent -t          test the bridge (works even without an API key)
-//   agent -w          keep watching the current task (after a timeout)
-//   agent -r          print the last final answer
-//   agent -s <name>   save the last answer's code block as <name>.src
+// Usage (from any in-game terminal):
+//   agent            interactive harness chat (recommended) — every message
+//                     continues the same mission; his plan/notes survive
+//   agent <task...>  one-shot mission; the final answer prints here
+//   /new             from any terminal, even mid-mission elsewhere:
+//                     cancels the active mission and clears ALL context
+//                     (history, plan, notes) for a fresh engagement
+//   agent -t         bridge self-test (creates the bridge files, PINGs the
+//                     daemon; works even without an API key)
+//   agent -w         re-attach to the current task's tool loop
+//   agent -r         print the last reply again
+//   agent -s <name>  save the last reply's code block to ~/<name>
 //
-// Tool programs the AI writes are told to log output to the bridge's
-// out.txt file, which gets read back after each run.
+// How a round works:
+//   1. a request (your message) is written to the bridge with a fresh nonce
+//   2. serve() polls the bridge ~once a second and:
+//        - prints "[thought] ..." lines as the daemon publishes the
+//          model's interim thinking (so long LLM rounds don't look frozen)
+//        - executes each tool command and prints "[agent] tool: <op>"
+//   3. when the daemon writes the completion marker for OUR nonce, the
+//      reply prints and control returns to the prompt
+//   Strict nonce matching everywhere: stale markers from older missions
+//   never satisfy a wait; the daemon verifies+retries its own writes.
 //
-// All bridge files live in /home/<you>/llm on your in-game machine.
+// Bridge files live in /home/<you>/.greyllm/ on this machine:
+//   game-owned:  prompt.txt mode.txt status.txt ("busy <nonce>")
+//                command_status.txt ("done/error <tag>") command_result.txt
+//   daemon-owned: response.txt done.txt ("done <nonce>") command.txt
+//                payload.txt cmdflag.txt ("pending <nonce>")
+//   shared:      thinking.txt (live thoughts) cancel.txt (/new aborts)
+//   the agent's: plan.txt notes.txt out.txt counter.txt
+//
+// Tool programs the model writes append their results to out.txt, which
+// run_program collects after launch. Launched programs run synchronously —
+// a long tool blocks this terminal until it exits.
+//
+// AGENT_VERSION is checked by the daemon at startup (and after each
+// mission): an outdated /bin/agent is re-installed automatically from the
+// repo's game/agent.src through the hook — no manual re-pasting.
 
 BRIDGE_DIR = home_dir + "/.greyllm"
-AGENT_VERSION = "8"
+AGENT_VERSION = "9"
 STALL_TIMEOUT = 900
 MARKER = "GreyLLM-BRIDGE-READY"
 NL = char(10)

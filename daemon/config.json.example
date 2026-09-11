@@ -9,7 +9,7 @@
   "poll_interval": 0.5,
   "max_history": 6,
   "request_timeout": 600,
-  "max_tokens": 16384,
+  "max_tokens": 32768,
   "thinking_budget": 6000,
   "max_tool_rounds": 0,
   "tool_timeout": 360,

@@ -73,7 +73,7 @@ DEFAULT_CONFIG = {
     "poll_interval": 0.5,
     "max_history": 6,
     "request_timeout": 600,
-    "max_tokens": 16384,
+    "max_tokens": 32768,
     "thinking_budget": 6000,
     "max_tool_rounds": 0,
     "tool_timeout": 360,
@@ -1230,16 +1230,26 @@ def extract_thinking(blocks):
     ).strip()
 
 
-def stream_thinking(transport, round_no, text, label="thought"):
+def stream_thinking(transport, round_no, sections):
     """Publish the model's interim thinking to the bridge so the in-game
     serve loop can print it live — otherwise the game terminal looks frozen
-    during (sometimes minutes-long) LLM rounds. Best-effort: a missing file
-    (old in-game runtime) or write failure must never break a round."""
-    line = " ".join(text.split())[:900]
-    if not line:
+    during (sometimes minutes-long) LLM rounds. NO truncation: the model
+    rambles as long as it wants (newlines preserved); a 16k-char ceiling
+    exists only as a pathological guard and is marked visibly, never
+    silent. Best-effort: a missing file (old in-game runtime) or write
+    failure must never break a round."""
+    body = "\n".join(
+        f"[{round_no}|{label}] {text.strip()}" for label, text in sections
+    )
+    if len(body) > 16000:
+        body = (
+            body[:16000]
+            + f"\n…(+{len(body) - 16000} chars beyond the display ceiling)"
+        )
+    if not body.strip():
         return
     try:
-        transport.write("thinking.txt", f"[{round_no}|{label}] {line}")
+        transport.write("thinking.txt", body)
     except Exception as exc:  # noqa: BLE001 - display-only channel
         print(f"[bridge] thinking stream skipped: {exc}")
 
@@ -1323,14 +1333,16 @@ def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
         tool_uses = [b for b in blocks if b.get("type") == "tool_use"]
         interim = extract_text(blocks).strip()
         reasoning = extract_thinking(blocks)
-        # stream the real reasoning blocks when present (that's the "a lot
-        # to say" content), otherwise the visible commentary
+        # stream EVERYTHING he has to say: full reasoning blocks AND the
+        # visible commentary, one publish per round, untruncated
+        sections = []
         if reasoning:
-            stream_thinking(transport, round_no, reasoning, label="reasoning")
+            sections.append(("reasoning", reasoning))
         if interim:
-            log(f"thinking: {interim[:160]}")
-            if not reasoning:
-                stream_thinking(transport, round_no, interim)
+            sections.append(("say", interim))
+            log(f"thinking: {interim[:600]}")
+        if sections:
+            stream_thinking(transport, round_no, sections)
         if not tool_uses:
             final = interim
             if not final:

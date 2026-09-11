@@ -47,7 +47,7 @@
 // repo's game/agent.src through the hook — no manual re-pasting.
 
 BRIDGE_DIR = home_dir + "/.greyllm"
-AGENT_VERSION = "9"
+AGENT_VERSION = "10"
 STALL_TIMEOUT = 900
 MARKER = "GreyLLM-BRIDGE-READY"
 NL = char(10)
@@ -592,7 +592,7 @@ runTest = function(comp)
 		modeF.set_content("chat")
 	end if
 	print("bridge files live in " + BRIDGE_DIR)
-	print("on your PC run: python bridge.py --db-map")
+	print("on your PC run: .\bridge.cmd  (the watch daemon)")
 	print("testing bridge...")
 	promptF = getOrCreateFile(comp, BRIDGE_DIR + "/prompt.txt")
 	statusF = getOrCreateFile(comp, BRIDGE_DIR + "/status.txt")

@@ -35,6 +35,7 @@ Three pieces make this work, and each has to be installed once:
 | **GreyLLMHook** (BepInEx plugin) | Inside the game folder | Real-time bridge: exposes the game's live filesystem over loopback TCP so the daemon can read/write files in milliseconds instead of scraping the save DB |
 | **In-game program** (`agent`) | On your in-game machine | Interactive chat + one-shot missions: submits requests, executes the model's tool commands, streams its thoughts, prints replies |
 | **Watch daemon** (`bridge.py`) | On your PC | The agent harness: talks to the model (GLM), dispatches its tool calls into the game, injects prompts/memory, guards the protocol |
+| **Universal `exploit` tool** (`game/exploit.src`) | Auto-installed to `~/exploit.src` in game | One binary, every target: flag-driven exploitation (ports, vuln selection, overflow args, durable-access conversion) — the agent never writes per-target attack tools |
 
 ---
 
@@ -149,7 +150,7 @@ In `daemon/config.json`, set at minimum:
   "base_url": "https://api.z.ai/api/anthropic",
   "model": "glm-5.3",
   "api_key": "<YOUR GLM API KEY>",
-  "max_tokens": 16384
+  "max_tokens": 32768
 }
 ```
 
@@ -288,10 +289,10 @@ the bridge `out.txt`, so the model actually sees what its code did.
 |---|---|---|
 | `sysinfo` | game | Installed programs (/bin), home path, bridge dir |
 | `list_dir` | game | List a directory |
-| `read_file` / `write_file` / `append_file` | game | File I/O; `.src` writes are syntax-checked first |
+| `read_file` / `write_file` / `append_file` | game | File I/O; `.src` writes are syntax-checked first, versioned tool names (`tool2.src`) are rejected |
 | `make_dir` / `delete_file` | game | Filesystem management |
 | `compile_program` | game | Source → runnable binary (`get_shell.build`) |
-| `run_program` | game | Launch a binary, wait, collect its output from `out.txt` |
+| `run_program` | game | Launch a binary, wait, collect its output from `out.txt` **plus the game-terminal tail — runtime errors (exact message, file, line) flow back to the model** |
 | `api_doc` | daemon | Search the complete GreyScript API reference (below) |
 | `load_skill` | daemon | Load a mission playbook (see below) |
 | `ask_user` | daemon | Blocker question: stop work, ask you, resume on reply |
@@ -316,6 +317,26 @@ only the index:
 
 The doctrine makes opsec mandatory: any mission touching someone else's
 machine ends with log clearing and artifact cleanup.
+
+### The standard attack toolset
+
+The agent maintains **one universal exploitation tool** instead of writing
+per-target attack programs. `~/exploit.src` is auto-installed/updated by
+the daemon (compile once with `compile_program`, reuse the `~/exploit`
+binary forever). Flags carry everything target-specific:
+
+```
+exploit <ip>                  # walk every open port: discover + fire all
+exploit <ip> -p=0             # kernel attack (port 0)
+exploit <ip> -a=0x58E9E6AD -x=rev_maskba   # re-fire one known vuln
+exploit <ip> -g=newpass       # overflow arg (password-change/LAN-ip vulns)
+exploit <ip> -u=bk -w=pw      # convert any foothold to a durable user
+exploit <ip> -l               # list vulns + requirements, fire nothing
+exploit <ip> -o=/tmp/r -m=/lib/metaxploit.so   # when deployed ON a hop
+```
+
+Per-target knowledge (which area/name worked) lives in the agent's
+`notes.txt` — never in code.
 
 **`api_doc`** searches a **complete API reference generated from the
 game's own metadata** (316 entries — every type, method, signature, return
@@ -343,7 +364,7 @@ caught and fed back without wasting an in-game round trip.
 | `thinking_budget` | `6000` | Per-round thinking token cap; smaller = faster rounds, `0` = unbounded (can take minutes per round) |
 | `max_tokens` | `32768` | Output budget per round; thinking models need headroom |
 | `max_tool_rounds` | `0` | Tool rounds per message; `0` = unlimited (default) — loop detection is the safety net |
-| `tool_timeout` | `120` | Seconds to wait for the in-game runtime before failing a tool |
+| `tool_timeout` | `360` | Max wait for run/build tools (launches are synchronous and can be long). Cheap filesystem ops fail fast at 45s |
 | `max_history` | `6` | Conversation exchanges kept across requests |
 | `poll_interval` | `0.5` | Bridge poll cadence (seconds) |
 
@@ -398,7 +419,7 @@ python tools/hook-client.py health  # poke the plugin manually
 - **Slow (~a minute per hop)** — you're on the sqlite fallback; switch
   `"transport": "hook"` in config (requires plugin + game running).
 - **Model returns `(1 chars)` or empty** — thinking model consumed the
-  token budget; raise `max_tokens` (16384 recommended).
+  token budget; raise `max_tokens` (32768 recommended).
 
 ---
 
@@ -423,6 +444,9 @@ python tools/hook-client.py health  # poke the plugin manually
   append results to the bridge `out.txt`, which `run_program` collects.
 - One mission at a time: the bridge folder is a single request/response
   channel.
+- The plugin's daemon-side `run` op (execute a script without the in-game
+  runtime) is unimplemented — the game has no window wiring for it; the
+  in-game `agent` runtime executes everything instead.
 - Multiplayer is unsupported by design.
 
 ---
@@ -431,7 +455,8 @@ python tools/hook-client.py health  # poke the plugin manually
 
 ```
 GreyLLMHook/        BepInEx plugin C# source (the game-side bridge)
-game/agent.src      in-game harness runtime (paste as /bin/agent)
+game/agent.src      in-game harness runtime (auto-installed to /bin/agent)
+game/exploit.src    universal flag-driven exploitation tool (auto-installed to ~/)
 daemon/bridge.py    the watch daemon: agent loop, tools, LLM calls
 daemon/prompt_pack/ system.md (mission doctrine) + greyscript_reference.md
                     (verified essentials + generated complete API appendix)

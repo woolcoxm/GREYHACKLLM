@@ -1,5 +1,5 @@
 // worm — aggressive staged harvesting worm (GreyLLM standard)
-// WORM_VERSION = "2" (daemon auto-installs/updates this file)
+// WORM_VERSION = "3" (daemon auto-installs/updates this file)
 //
 // Per host: break in with the standard ~/exploit tool, ESCALATE LOCALLY
 // to root (victim-side exploit -L, password-change attempts, root
@@ -9,10 +9,16 @@
 // still harvested with the durable user and the infection moves on.
 //
 // usage (from your home machine):
-//   worm [ip ...] [flags]      harvest run (ips seed the frontier)
-//     -g=N   generations this run             (default 1)
-//     -t=N   max hosts per generation         (default 3, cap 10)
-//     -r=N   random public IPs added per gen  (default 2, cap 8)
+//   worm [ip ...] [flags]      THE EPIDEMIC — runs continuously until
+//                              killed: infect -> harvest -> scan ->
+//                              infect, breadth-first, forever. Random
+//                              public IPs keep the frontier alive when
+//                              local networks are picked clean.
+//     -g=N   cap on infection cycles this run (default 0 = INFINITE)
+//     -t=N   hosts per cycle                (default 3, cap 10)
+//     -r=N   random public IPs per cycle    (default 2, cap 8)
+//     -auto  ALSO install itself into /etc/init.d (autorun: the
+//            epidemic resumes automatically at every game login)
 //     -o=P   exfil file, appended per host    (default ~/Desktop/bankintel.txt)
 //     -s=P   state file                       (default ~/worm.state)
 //     -u=U -w=P   durable creds on victims    (default worm / W0rmP@ss1x)
@@ -258,6 +264,30 @@ cleanDrops = function(vic, vhome, names)
 	return null
 end function
 
+installAutorun = function(comp)
+	// /etc/init.d on the PLAYER's machine is executed at every game
+	// login (AutorunServerRpc, verified in game source) — installing
+	// ourselves here makes the epidemic resume automatically each
+	// session. Best-effort: requires /etc/init.d write access (root).
+	initd = comp.File("/etc/init.d")
+	if initd == null then
+		print("worm: no /etc/init.d folder — autorun install skipped")
+		return false
+	end if
+	bin = comp.File(home_dir + "/worm")
+	if bin == null then
+		print("worm: compile ~/worm.src first (-auto needs the binary)")
+		return false
+	end if
+	r = bin.copy("/etc/init.d")
+	if typeof(r) == "string" then
+		print("worm: autorun install failed: " + r + " (need root? try after -L root)")
+		return false
+	end if
+	print("worm: installed into /etc/init.d — epidemic auto-resumes every login")
+	return true
+end function
+
 clearLog = function(vic)
 	lf = vic.File("/var/system.log")
 	if lf != null then
@@ -496,9 +526,10 @@ end function
 
 main = function(params)
 	comp = get_shell.host_computer
-	gens = 1
+	gens = 0
 	maxT = 3
 	rndN = 2
+	autoInstall = false
 	exfilPath = home_dir + "/Desktop/bankintel.txt"
 	statePath = home_dir + "/worm.state"
 	user = "worm"
@@ -511,6 +542,8 @@ main = function(params)
 		for p in params
 			if p == "-scan" then
 				scanOnly = true
+			else if p == "-auto" then
+				autoInstall = true
 			else if p.indexOf("-g=") == 0 then
 				gens = val(p[3:])
 			else if p.indexOf("-t=") == 0 then
@@ -533,8 +566,8 @@ main = function(params)
 			end if
 		end for
 	end if
-	if gens == null or gens < 1 then
-		gens = 1
+	if gens == null or gens < 0 then
+		gens = 0
 	end if
 	if maxT == null or maxT < 1 then
 		maxT = 1
@@ -591,11 +624,21 @@ main = function(params)
 		end if
 	end if
 
+	if autoInstall then
+		installAutorun(comp)
+	end if
 	rndCounter = 1
-	for g in range(1, gens)
-		// ebola fan-out: fresh random publics every generation
+	cycle = 0
+	infected = 0
+	print("worm: EPIDEMIC MODE — infecting until killed or frontier logic ends (state: " + statePath + ")")
+	while true
+		cycle = cycle + 1
+		if gens > 0 and cycle > gens then
+			break
+		end if
+		// keep the frontier alive: fresh random publics every cycle
 		for rI in range(1, rndN)
-			rip = rndPublicIp(rndCounter + g * 31)
+			rip = rndPublicIp(rndCounter + cycle * 31)
 			rndCounter = rndCounter + 1
 			if knownIp(frontier, owned, done, rip) == false then
 				frontier.push(rip)
@@ -606,11 +649,11 @@ main = function(params)
 			ip = frontier[0]
 			frontier.remove(0)
 			if is_valid_ip(ip) != 1 then
-				print("worm: skipping invalid ip " + ip)
 				done.push(ip)
 				continue
 			end if
 			res = processVictim(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormSrc)
+			infected = infected + 1
 			if typeof(res) == "list" then
 				newIps = res[1]
 				owned.push([ip, user, pass])
@@ -623,11 +666,16 @@ main = function(params)
 				done.push(ip)
 			end if
 			worked = worked + 1
-			// saved after EVERY host: any death resumes cleanly
+			// state saved after EVERY host: any death resumes cleanly
 			stateSave(comp, statePath, frontier, owned, done)
 		end while
-		print("worm: generation " + g + " done — frontier " + frontier.len + ", owned " + owned.len + ", done " + done.len)
-	end for
+		print("worm: cycle " + cycle + " — infected total " + infected + ", frontier " + frontier.len + ", owned " + owned.len + " (exfil: " + exfilPath + ")")
+		// pacing: let the game breathe between cycles
+		wait(2)
+	end while
+	if autoInstall then
+		installAutorun(comp)
+	end if
 	print("worm: run complete. exfil: " + exfilPath + " — rerun to keep spreading")
 	return null
 end function

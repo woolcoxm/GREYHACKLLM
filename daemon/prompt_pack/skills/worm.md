@@ -24,19 +24,27 @@ across the network", mass credential harvesting. The standard worm
 5. **Stealth**: every dropped artifact deleted, victim `/var/system.log`
    wiped. State saved after EVERY host — any death resumes on rerun.
 
-## Driving it (staged generations)
+## Driving the epidemic
 
 ```
 compile_program ~/worm.src -> ~/worm        # once
-run_program ~/worm <seed-ip>                # generation 1
-run_program ~/worm                          # next generations (state-driven)
+~/worm <seed-ip> -auto                      # LAUNCH ONCE
 ```
-Flags: `-g=` generations per run, `-t=` hosts per generation (≤10),
-`-r=` random IPs per generation, `-o=` exfil path, `-u/-w` durable
-creds, `-rp=` root password. One run = a few hosts (bounded so the
-harness's synchronous launch doesn't stall); loop runs for an epidemic.
-Check `~/worm.state` (frontier/owned/done) and the exfil file between
-runs; report stolen credentials from the exfil file.
+The default run is INFINITE: infect -> harvest -> scan -> infect,
+breadth-first, until killed — random public IPs keep the frontier
+alive when networks are picked clean. `-auto` also installs the worm
+into the PLAYER's /etc/init.d (autorun, verified in game source): the
+epidemic auto-resumes at every game login. Kill with the terminal
+close / process kill; state (`~/worm.state`) resumes on next launch.
+Multiple terminals with different `-s=` state files = parallel
+epidemics (GreyScript has no threads — instances are the parallelism).
+Flags: `-g=` cap cycles (0=infinite), `-t=` hosts/cycle, `-r=` random
+IPs/cycle, `-o=` exfil, `-u/-w` creds, `-rp=` root password.
+
+IMPORTANT for the harness: an infinite worm blocks the serve loop
+forever. When launching via run_program, ALWAYS pass a bounded -g=
+(e.g. -g=3) and re-invoke for more; reserve raw infinite runs for a
+terminal the player opens directly (or -auto autorun at login).
 
 ## Constraints (verified)
 

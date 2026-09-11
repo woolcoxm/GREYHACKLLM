@@ -354,14 +354,24 @@ exploit -L -libdir=/lib       # LOCAL escalation: attack THIS machine's /lib
 exploit <ip> -o=/tmp/r -m=/lib/metaxploit.so   # when deployed ON a hop
 ```
 
-The harvest happens **at foothold time, in-process**: foothold objects
-die with the process that won them (http-only hosts have no ssh port to
-return to), so the tool walks `/home/*`, exfiltrates every readable
-`*bank*`/`*mail*` file to `-E`, drops itself on the victim and runs `-L`
-for local root, and (with `-depth>0`) drops + builds + launches the worm
-there so the **victim's CPU** attacks the next generation. Loot
-bucket-brigades home: each parent pulls its child's exfil file up through
-its foothold, hop by hop, into `~/Desktop/bankintel.txt`.
+The harvest happens **at foothold time, in-process** — the v19 assault
+ladder: full-fire *every* vuln on every port (never stop at the first
+foothold), rank all footholds by what they can read (root-class >
+user > guest), fire the kernel attack when rootless, crack
+`/etc/passwd` and become the strongest account where ssh exists
+(there is no `su` in Grey Hack — a network login is the only identity
+switch), harvest every `*bank*`/`*mail*`/`*wallet*` file plus the
+passwd table to `-E`, escalate locally by **scp'ing the compiled
+binary** to the victim and running `-L` there (never build on the
+victim — guest shells can't), and (with `-depth>0`) scp + launch the
+worm there so the **victim's CPU** attacks the next generation. Loot
+bucket-brigades home: each parent pulls its child's exfil file up
+through its foothold, hop by hop, into `~/Desktop/bankintel.txt`.
+Per-host firing is time-budgeted (default 120s) and known-winning
+exploit pairs accumulate and fire first on any host running the same
+library version. The worm also writes a per-host digest to
+`~/Desktop/wormreport.txt` — best privilege reached, files harvested,
+accounts cracked — so a dead rung can never hide.
 
 Per-target knowledge (which area/name worked) lives in the agent's
 `notes.txt` — never in code.

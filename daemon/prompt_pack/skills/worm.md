@@ -20,32 +20,41 @@ belongs. `-depth=` tunes the tree depth.
 
 The worm is the FRONTIER DRIVER — it never touches victims itself.
 For each host it launches `~/exploit <ip> -u=... -w=... -g=<rootpass>
--E=<exfil> -depth=<n>`, and the exploit does everything IN-PROCESS while
-its foothold object is alive:
+-E=<exfil> -o=<wreport> -winners=<wins> -depth=<n>`, and the exploit
+runs the ASSAULT LADDER in-process while its foothold objects are
+alive:
 
-1. **Entry**: full-fire across every open port (quiet `-q` mode only
-   fires no-requirement exploits and starves the worm to zero — do not
-   use it). The first shell/computer foothold wins.
-2. **Harvest**: every readable `*bank*`/`*mail*` file in every
-   `/home/*` — appended to the exfil file right through the foothold
-   (default `~/Desktop/bankintel.txt`). Re-login is impossible on
-   http-only hosts, so nothing waits for "later".
-3. **Escalation**: the exploit drops + compiles itself on the victim
-   and runs `exploit -L` THERE — local /lib attacks for root
-   (password-change attempts with `-rp=`). A root foothold re-harvests
-   every home.
-4. **Delegation**: with depth > 0 it also drops + builds `worm` on the
-   victim and launches `worm -child -depth-1` there — the infected
-   machine attacks the NEXT generation. Loot bucket-brigades home: each
-   parent pulls its child's exfil file up through the foothold after
-   the synchronous launch returns.
-5. **Spread**: the child (or a depth-0 scan) enumerates THAT network's
-   public attack surface — results ride the report home as NEWTARGET
-   lines. Plus fresh random public IPs every cycle — the frontier
-   never runs dry.
-6. **Stealth**: dropped artifacts deleted, victim `/var/system.log`
-   wiped (best-effort — it is root-owned). State saved after EVERY
-   host — any death resumes on rerun.
+1. **Entry**: full-fire EVERY vulnerability on EVERY open port — never
+   stop at the first foothold; collect all shells/computer objects and
+   rank them by access (root-class > user > guest, probed by what they
+   can read). Quiet `-q` mode starved the worm to zero entries once —
+   never default it.
+2. **Kernel**: when no root-class foothold emerged, fire port 0 too.
+3. **Crack + become**: /etc/passwd readable → decipher every hash,
+   connect_service as the strongest cracked account where ssh exists
+   (there is NO su in this game — a network login is the only identity
+   switch); re-harvest when that upgrades access.
+4. **Harvest**: every readable `*bank*`/`*mail*`/`*wallet*` file in
+   every `/home/*` plus the passwd table — appended to the exfil file
+   right through the foothold (default `~/Desktop/bankintel.txt`).
+5. **Escalate**: lacking root-class, scp THIS compiled binary +
+   metaxploit.so to the victim (never build there — guests cannot) and
+   run `exploit -L` on it — local /lib attacks for root.
+6. **Delegation**: with depth > 0, scp the compiled worm + exploit to
+   the victim and launch `worm -child -depth-1` there — the infected
+   machine attacks the NEXT generation. Loot bucket-brigades home:
+   each parent pulls its child's exfil file up after the synchronous
+   launch returns.
+7. **Stealth**: dropped artifacts deleted, victim `/var/system.log`
+   wiped (best-effort — root-owned). State saved after EVERY host.
+
+Per-host firing is budget-capped (default 120s, `-budget=`) so one
+stubborn box cannot stall the frontier. WINNER lines (known-good
+exploit pairs per library version) accumulate in `~/worm.wins` and
+fire first on every host running the same version. The worm writes a
+per-host digest to `~/Desktop/wormreport.txt` — best privilege
+reached, files harvested, accounts cracked, new targets. Hosts are
+DONE forever once worked (no re-attacks, operator directive).
 
 ## Driving the epidemic
 

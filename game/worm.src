@@ -1,21 +1,27 @@
 // worm — epidemic harvesting worm (GreyLLM standard)
-// WORM_VERSION = "20" (daemon auto-installs/updates this file)
+// WORM_VERSION = "21" (daemon auto-installs/updates this file)
 //
 // STANDALONE: no agent, daemon, or bridge required — needs ~/exploit.src
 // beside it (and compiles it if the binary is missing). Works in
 // multiplayer: paste this into the in-game Code Editor, save as
 // ~/worm.src, Compile, then run ~/worm from any terminal.
 //
-// ARCHITECTURE (v14+): the worm is the FRONTIER DRIVER. It does not touch
-// victims itself — for each host it launches ~/exploit, which does the
-// entire attack IN-PROCESS while its foothold object is alive: break in,
-// harvest every bank/mail file to the exfil file, escalate to root with a
-// victim-side -L run, DELEGATE the next infection generation to the
-// victim's own CPU (drops + builds + launches worm -child there), and
-// clean up its artifacts. The worm reads the report (HARVEST/OWNED/
-// NEWTARGET lines), records state, and moves to the next host. Re-entry
-// via connect_service is retired: http-only hosts have no ssh:22 to
-// return to, create_user is root-only, /etc/passwd is guest-denied.
+// ARCHITECTURE (v19+): the worm is the FRONTIER DRIVER. It does not touch
+// victims itself — for each host it launches ~/exploit, which runs the
+// ASSAULT LADDER IN-PROCESS while its foothold objects are alive:
+//   full-fire EVERY vuln (never stop at the first foothold) -> rank all
+//   footholds by access (root-class > user > guest) -> kernel attack
+//   when rootless -> crack /etc/passwd + become the strongest account
+//   via connect_service (no su exists in this game) -> harvest
+//   bank/mail/wallet/passwd -> local -L escalation with SCP'd BINARIES
+//   (never build on the victim — guests cannot) -> delegate the next
+//   generation to the victim's CPU -> clean artifacts + wipe the log.
+// The worm reads the report (HARVEST/OWNED/NEWTARGET/WINNER/BESTPRIV),
+// records state, collects WINNERS (known-good exploit pairs fire first
+// on any host running the same library version), writes the Desktop
+// digest, and moves to the next host. Re-entry via connect_service is
+// retired: http-only hosts have no ssh:22 to return to, create_user is
+// root-only, /etc/passwd is guest-denied.
 //
 // The infection TREE carries loot home bucket-brigade style: each child's
 // -E exfil file is pulled up by its parent through the foothold object
@@ -259,6 +265,7 @@ stateLoad = function(comp, path)
 	frontier = []
 	owned = []
 	done = []
+	skipped = 0
 	raw = readFileOr(comp, path, "")
 	if raw == "" then
 		return [frontier, owned, done]
@@ -269,17 +276,34 @@ stateLoad = function(comp, path)
 		if line == "" then
 			continue
 		end if
-		if line.indexOf("F|") == 0 then
-			frontier.push(line[2:])
-		else if line.indexOf("O|") == 0 then
-			parts = line.split("|")
-			if parts.len >= 4 then
-				owned.push([parts[1], parts[2], parts[3]])
+		parts = line.split("|")
+		// STRICT parse — the lenient version once accepted corrupted
+		// 5-field lines ("O|O|||1") as owned hosts with ip "O"
+		if line.indexOf("F|") == 0 and parts.len == 2 then
+			if is_valid_ip(parts[1]) == 1 then
+				frontier.push(parts[1])
+			else
+				skipped = skipped + 1
 			end if
-		else if line.indexOf("D|") == 0 then
-			done.push(line[2:])
+		else if line.indexOf("O|") == 0 and parts.len == 4 then
+			if is_valid_ip(parts[1]) == 1 then
+				owned.push([parts[1], parts[2], parts[3]])
+			else
+				skipped = skipped + 1
+			end if
+		else if line.indexOf("D|") == 0 and parts.len == 2 then
+			if is_valid_ip(parts[1]) == 1 then
+				done.push(parts[1])
+			else
+				skipped = skipped + 1
+			end if
+		else
+			skipped = skipped + 1
 		end if
 	end for
+	if skipped > 0 then
+		wlog("worm: purged " + skipped + " malformed state line(s) on load")
+	end if
 	return [frontier, owned, done]
 end function
 
@@ -344,6 +368,17 @@ installAutorun = function(comp)
 	return true
 end function
 
+digestHost = function(comp, ip, priv, files, cracked, targets)
+	// human-readable per-host line on the Desktop — with this file,
+	// "gained 50 shells and did nothing" is visible within one glance
+	path = home_dir + "/Desktop/wormreport.txt"
+	if globals.digestPath != null then
+		path = globals.digestPath
+	end if
+	appendFile(comp, path, ip + " — " + priv + " | files=" + files + " cracked=" + cracked + " newTargets=" + targets + NL)
+	return null
+end function
+
 processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormSrc)
 	// returns ["owned", newIps], "done", or "skip"
 	mark = "worm: " + ip
@@ -359,24 +394,22 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 		end if
 	end if
 
-	// 1. break in — FULL fire (default). Quiet mode (-q on the tool)
-	// only fires no-requirement exploits, and in practice the world's
-	// exploitable vulns are requirement-gated: -q starved the worm to
-	// zero entries. Stealth comes from the per-host cleanup + log wipe,
-	// not from firing fewer shots.
+	// 1. break in — the exploit v19 ASSAULT LADDER: full-fire every
+	// vuln, rank all footholds, kernel when rootless, crack+become,
+	// harvest, scp-deploy the local -L escalation, delegate children.
+	// Quiet mode (-qe) starved the worm to zero entries once — never
+	// default it.
 	//
-	// REPORT PATH: mirror the tool's findOut EXACTLY — it writes to the
-	// bridge out.txt only when the bridge folder exists, otherwise to
-	// ~/exploit_out.txt. Reading a fixed path while the tool fell back
-	// made the worm discard 10 real footholds as "no entry".
-	outPath = home_dir + "/.greyllm/out.txt"
-	if comp.File(home_dir + "/.greyllm") == null then
-		outPath = home_dir + "/exploit_out.txt"
-	end if
+	// REPORT PATH: deterministic wreport.txt beside the binary, passed
+	// with -o — no findOut mirroring, no fallback divergence (the v11
+	// lesson: reading a fixed path while the tool fell back discarded
+	// 10 real footholds as "no entry").
+	outPath = globals.homeBase + "/wreport.txt"
 	outF = ensureFile(comp, outPath, " ")
 	if outF != null then
 		outF.set_content(" ")
 	end if
+	winnersPath = globals.homeBase + "/worm.wins"
 	entryFlags = ""
 	if globals.quietEntry == true then
 		entryFlags = " -q"
@@ -385,23 +418,44 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 		return "skip"
 	end if
 	depthArg = " -depth=" + globals.wormDepth
-	lr = shell.launch(globals.homeBase + "/exploit", ip + entryFlags + " -u=" + user + " -w=" + pass + " -g=" + rootPass + " -E=" + exfilPath + depthArg)
+	lr = shell.launch(globals.homeBase + "/exploit", ip + entryFlags + " -u=" + user + " -w=" + pass + " -g=" + rootPass + " -E=" + exfilPath + " -o=" + outPath + " -winners=" + winnersPath + depthArg)
 	if lr != 1 then
 		wlog(mark + ": exploit launch failed: " + lr)
 		return "skip"
 	end if
 	report = readFileOr(comp, outPath, "")
+	// WINNERS: known-good exploit pairs ride the state — same library
+	// version on another host fires them first (vuln sets are stable
+	// per version)
+	winTxt = readFileOr(comp, winnersPath, "")
+	for line in report.split(NL)
+		wi = line.indexOf("WINNER ")
+		if wi != null then
+			wl = line[wi + 7:].trim
+			parts = wl.split(" ")
+			if parts.len >= 4 then
+				key = parts[0] + "|" + parts[1] + "|" + parts[2] + "|" + parts[3]
+				if containsStr(winTxt, key) == false then
+					appendFile(comp, winnersPath, key + NL)
+					winTxt = winTxt + key + NL
+				end if
+			end if
+		end if
+	end for
 	if containsStr(report, "FOOTHOLD") == false and containsStr(report, "SUCCESS") == false then
 		wlog(mark + ": no entry (requirements unmet or nothing there)")
+		digestHost(comp, ip, "no entry", 0, 0, 0)
 		return "done"
 	end if
 
-	// 2. the exploit tool (v14) harvested, cracked and escalated AT
-	//    FOOTHOLD TIME — re-login is obsolete: http-only hosts have no
-	//    ssh:22 to return to, create_user is root-only, /etc/passwd is
-	//    guest-denied. Read what the foothold already extracted.
+	// 2. the exploit v19 ladder worked the best foothold IN-PROCESS —
+	// re-login is obsolete (http-only hosts have no ssh:22 to return
+	// to, create_user is root-only, /etc/passwd is guest-denied).
+	// Read what the foothold already extracted.
 	harvestedFiles = 0
 	harvestedChars = 0
+	crackedCount = 0
+	bestPriv = "foothold"
 	for line in report.split(NL)
 		h = line.indexOf("HARVEST ")
 		if h != null then
@@ -411,24 +465,22 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 			if op != null and cp2 != null then
 				harvestedChars = harvestedChars + val(line[op + 1:cp2])
 			end if
+		else if line.indexOf("CRACKED ") != null then
+			crackedCount = crackedCount + 1
+		else if line.indexOf("BESTPRIV ") != null then
+			bp = line.indexOf("BESTPRIV ")
+			bestPriv = line[bp + 9:].trim
 		end if
 	end for
-	if harvestedFiles > 0 then
-		wlog(mark + ": OWNED — harvested " + harvestedFiles + " files (" + harvestedChars + " chars) to " + exfilPath)
-	end if
 	// entries for the state file: hosts we OWNED get kept with the
-	// durable creds; ssh-capable hosts can still be re-entered manually
+	// durable creds; per operator directive hosts are DONE forever —
+	// no re-attacks, the frontier only grows from new discoveries.
 	ownedNow = containsStr(report, "OWNED ")
 
-	// 3-7 (v14): the OLD post-login pipeline (drop/build/escalate/
-	// harvest/clean via connect_service shell) is retired — v14's
-	// exploit does all of it AT FOOTHOLD TIME. The worm's remaining
-	// job per host: count the take, mark state, and move on.
-	//
-	// Network spread still uses the victim-side scan when a SHELL
-	// foothold was available — the exploit tool reports it already
-	// dropped+ran worm -scan inside /tmp; its results ride in the
-	// report as NEWTARGET lines.
+	// 3-7 (v19): the exploit does harvest/crack/escalate/delegate/
+	// clean AT FOOTHOLD TIME. The worm's remaining job per host: count
+	// the take, write the digest, mark state, and move on. NEWTARGET
+	// lines ride the report from the victim-side scan / child worms.
 	newIps = []
 	for line in report.split(NL)
 		nt = line.indexOf("NEWTARGET ")
@@ -439,10 +491,14 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 			end if
 		end if
 	end for
-	if ownedNow then
-		return ["owned", newIps]
+	digestHost(comp, ip, bestPriv, harvestedFiles, crackedCount, newIps.len)
+	if harvestedFiles > 0 then
+		wlog(mark + ": OWNED " + bestPriv + " — harvested " + harvestedFiles + " files (" + harvestedChars + " chars), cracked " + crackedCount + " accounts, +" + newIps.len + " targets")
+	else if crackedCount > 0 then
+		wlog(mark + ": OWNED " + bestPriv + " — no files, but " + crackedCount + " accounts cracked, +" + newIps.len + " targets")
+	else
+		wlog(mark + ": worked " + bestPriv + " — nothing readable from this access, +" + newIps.len + " targets")
 	end if
-	wlog(mark + ": foothold without harvest (denied homes or empty boxes)")
 	return ["owned", newIps]
 end function
 
@@ -658,6 +714,13 @@ main = function(params)
 	end if
 
 	globals.homeBase = homeBase
+	// digest: the root worm reports to the Desktop; children report to
+	// their /tmp sandbox (pulled loot carries the substance anyway)
+	if childMode then
+		globals.digestPath = "/tmp/wdigest.txt"
+	else
+		globals.digestPath = null
+	end if
 
 	// sources carried for spreading (text only — binaries go by scp)
 	exSrc = readFileOr(comp, homeBase + "/exploit.src", null)

@@ -1153,7 +1153,21 @@ def dispatch_tool(config, transport, name, args, tag):
     )
     timeout_s = 45 if cheap else config["tool_timeout"]
     deadline = time.time() + timeout_s
+    cancel_polls = 0
     while time.time() < deadline:
+        # a /new raised mid-mission must stop even a long-running tool:
+        # bail out within one poll cycle instead of waiting the timeout
+        cancel_polls += 1
+        if cancel_polls % 4 == 0:
+            try:
+                if (transport.read("cancel.txt") or "").strip().startswith(
+                    "cancel"
+                ):
+                    return False, (
+                        "cancelled by user (/new) — tool aborted mid-wait"
+                    )
+            except Exception:  # noqa: BLE001 - cancellation is best-effort
+                pass
         status = (transport.read("command_status.txt") or "").strip()
         if status == f"done {tag}":
             transport.write("cmdflag.txt", "idle")
@@ -1489,10 +1503,20 @@ def clear_engagement(transport):
     cleared = []
     for name in ("plan.txt", "notes.txt"):
         try:
-            transport.write(name, "")
+            # " " not "": empty content would share the md5("") row with
+            # every other empty file (game-side dedup poison)
+            transport.write(name, " ")
             cleared.append(name)
         except Exception as exc:  # noqa: BLE001 - clear what we can
             print(f"[bridge] could not clear {name}: {exc}")
+    try:
+        # consume any cancel flag THIS /new raised: a stale 'cancel' would
+        # abort the NEXT engagement at its first round
+        if (transport.read("cancel.txt") or "").strip().startswith("cancel"):
+            transport.write("cancel.txt", "consumed")
+            cleared.append("cancel flag")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[bridge] could not reset cancel flag: {exc}")
     print(f"[bridge] engagement context cleared ({', '.join(cleared) or 'history only'})")
 
 

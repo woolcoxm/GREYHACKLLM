@@ -47,7 +47,7 @@
 // repo's game/agent.src through the hook — no manual re-pasting.
 
 BRIDGE_DIR = home_dir + "/.greyllm"
-AGENT_VERSION = "10"
+AGENT_VERSION = "11"
 STALL_TIMEOUT = 900
 MARKER = "GreyLLM-BRIDGE-READY"
 NL = char(10)
@@ -554,7 +554,9 @@ chat = function(comp)
 	// conversation (the daemon keeps history + plan/notes on disk)
 	print("[agent] interactive session. full tool access; I keep")
 	print("[agent] plan.txt/notes.txt across messages.")
-	print("[agent] type /new for a fresh engagement; 'exit' to quit.")
+	print("[agent] /new = fresh engagement (from ANY terminal — if")
+	print("[agent] this one is busy mid-mission, run agent /new in another)")
+	print("[agent] 'exit' to quit.")
 	while true
 		line = user_input("you> ")
 		if line == null then

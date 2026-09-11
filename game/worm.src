@@ -1,5 +1,5 @@
 // worm — aggressive staged harvesting worm (GreyLLM standard)
-// WORM_VERSION = "7" (daemon auto-installs/updates this file)
+// WORM_VERSION = "8" (daemon auto-installs/updates this file)
 //
 // Per host: break in with the standard ~/exploit tool, ESCALATE LOCALLY
 // to root (victim-side exploit -L, password-change attempts, root
@@ -416,13 +416,21 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 		end if
 	end if
 
-	// 1. break in (quiet: no-requirement exploits only)
+	// 1. break in — FULL fire (default). Quiet mode (-q on the tool)
+	// only fires no-requirement exploits, and in practice the world's
+	// exploitable vulns are requirement-gated: -q starved the worm to
+	// zero entries. Stealth comes from the per-host cleanup + log wipe,
+	// not from firing fewer shots.
 	outPath = home_dir + "/.greyllm/out.txt"
 	outF = ensureFile(comp, outPath, " ")
 	if outF != null then
 		outF.set_content(" ")
 	end if
-	lr = shell.launch(home_dir + "/exploit", ip + " -q -u=" + user + " -w=" + pass)
+	entryFlags = ""
+	if globals.quietEntry == true then
+		entryFlags = " -q"
+	end if
+	lr = shell.launch(home_dir + "/exploit", ip + entryFlags + " -u=" + user + " -w=" + pass)
 	if lr != 1 then
 		wlog(mark + ": exploit launch failed: " + lr)
 		return "skip"
@@ -576,6 +584,7 @@ main = function(params)
 	autoInstall = false
 	maxMin = 10
 	idleMax = 3
+	quietEntry = false
 	exfilPath = home_dir + "/Desktop/bankintel.txt"
 	statePath = home_dir + "/worm.state"
 	user = "worm"
@@ -594,6 +603,8 @@ main = function(params)
 				maxMin = val(p[5:])
 			else if p.indexOf("-idle=") == 0 then
 				idleMax = val(p[5:])
+			else if p == "-qe" then
+				quietEntry = true
 			else if p.indexOf("-g=") == 0 then
 				gens = val(p[3:])
 			else if p.indexOf("-t=") == 0 then
@@ -616,6 +627,7 @@ main = function(params)
 			end if
 		end for
 	end if
+	globals.quietEntry = quietEntry
 	if gens == null or gens < 0 then
 		gens = 0
 	end if
@@ -733,6 +745,7 @@ main = function(params)
 			end if
 			res = processVictim(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormSrc)
 			infected = infected + 1
+			// counts TRIES; owned.len is the real infection count
 			if typeof(res) == "list" then
 				newIps = res[1]
 				owned.push([ip, user, pass])

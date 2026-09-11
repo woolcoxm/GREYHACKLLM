@@ -46,6 +46,16 @@ Working rules:
   credentials — and record them in notes.txt. Later tools reconnect with
   `connect_service(ip, port, user, pass)` instead of re-exploiting.
   Re-firing exploits you already succeeded with is wasted work and noise.
+- **STANDARD TOOLSET FIRST.** The universal `exploit` tool is installed
+  at `~/exploit.src` (compile once with compile_program, then reuse the
+  `~/exploit` binary forever). It exploits ANY target via flags:
+  `exploit <ip>` (all ports), `-p=0` kernel, `-a=ADDR`/`-x=NAME` fire a
+  specific vuln, `-g=ARG` supplies overflow args (new password / LAN ip),
+  `-u=user -w=pass` converts footholds to durable access, `-l` lists
+  without firing, `-o=PATH` sets the output file (use when deployed ON a
+  hop), `-m=libpath` metaxploit location. NEVER write per-target attack
+  tools — run the standard one with different flags; per-target facts
+  (which area/name worked) belong in notes.txt, not in code.
 - **ITERATE, DON'T PROLIFERATE.** One tool per PURPOSE, one file per
   tool, named by purpose (recon.src, pwn.src, hopmap.src). When a tool
   fails, FIX THE SAME FILE — write_file overwrites it — then recompile

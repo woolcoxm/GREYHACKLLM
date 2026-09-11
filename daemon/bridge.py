@@ -1601,6 +1601,7 @@ def complete_request(transport, nonce, reply):
 
 
 GAME_RUNTIME_PATH = "/bin/agent"
+ATTACK_TOOL_NAME = "exploit.src"
 
 
 def game_runtime_source():
@@ -1608,6 +1609,46 @@ def game_runtime_source():
     return (DAEMON_DIR.parent / "game" / "agent.src").read_text(
         encoding="utf-8", errors="replace"
     )
+
+
+def attack_tool_source():
+    return (DAEMON_DIR.parent / "game" / ATTACK_TOOL_NAME).read_text(
+        encoding="utf-8", errors="replace"
+    )
+
+
+def ensure_attack_tool(transport):
+    """Keep the standard universal exploitation tool installed in the
+    player's home (next to the bridge folder). The agent compiles it once
+    (compile_program) and reuses it for every target via flags."""
+    try:
+        source = attack_tool_source()
+        tool_version = re.search(
+            r"EXPLOIT_VERSION = \"([^\"]+)\"", source
+        )
+        home = transport._path("plan.txt").rsplit("/.greyllm", 1)[0]
+        dest = f"{home}/{ATTACK_TOOL_NAME}"
+        body = (transport._call(
+            {"op": "read", "path": dest}
+        ) or {}).get("content") or ""
+        have = re.search(r"EXPLOIT_VERSION = \"([^\"]+)\"", body)
+        if (
+            have
+            and tool_version
+            and have.group(1) == tool_version.group(1)
+        ):
+            return False
+        status = (transport.read("status.txt") or "").strip()
+        if status.startswith("busy"):
+            return False
+        transport._call({
+            "op": "write", "path": dest, "content": source,
+        })
+        print(f"[bridge] installed {dest} (universal exploit tool)")
+        return True
+    except Exception as exc:  # noqa: BLE001 - opportunistic
+        print(f"[bridge] attack tool install skipped: {exc}")
+        return False
 
 
 def runtime_version(body):
@@ -1675,7 +1716,10 @@ def watch(config, mock):
             ensure_game_runtime(transport, verbose=True)
         except Exception as exc:  # noqa: BLE001 - advisory only
             print(f"[bridge] runtime self-install check failed: {exc}")
-            pass
+        try:
+            ensure_attack_tool(transport)
+        except Exception as exc:  # noqa: BLE001 - advisory only
+            print(f"[bridge] attack tool install check failed: {exc}")
     print(
         "[bridge] watching game save. In game: agent (chat) / agent <task> "
         "/ agent /new  (Ctrl+C to stop)"
@@ -1691,6 +1735,7 @@ def watch(config, mock):
                     # update now that the serve loop is idle
                     try:
                         ensure_game_runtime(transport)
+                        ensure_attack_tool(transport)
                     except Exception:  # noqa: BLE001 - opportunistic
                         pass
             except ConnectionError as exc:

@@ -29,6 +29,16 @@
 //     -s=P   state file                       (default ~/worm.state)
 //     -u=U -w=P   durable creds on victims    (default worm / W0rmPass26x — alphanumeric, <=15)
 //     -rp=P  password tried for root changes  (default R00tPass26x)
+//     -fanout=N   PARALLELISM: split the frontier across N shard state
+//                 files and print the N terminal commands to run —
+//                 open them all and N worms work simultaneously
+//                 (GreyScript has no threads; concurrent PROCESSES are
+//                 the only true parallelism — init.d runs up to 15
+//                 programs at login, verified in game source)
+//     -install-workers=N  fanout AND install N compiled launchers into
+//                 /etc/init.d — every login auto-starts N parallel
+//                 workers (CPU wear scales with N; default cap 8)
+//     -merge      union all shard states back into ~/worm.state
 //
 // internal mode (launched BY the worm on a victim):
 //   worm -scan -o=PATH     print "ip=A port=N" lines for that network
@@ -598,6 +608,9 @@ main = function(params)
 	maxMin = 10
 	idleMax = 3
 	quietEntry = false
+	mergeMode = false
+	fanoutN = null
+	installWorkers = false
 	exfilPath = home_dir + "/Desktop/bankintel.txt"
 	statePath = home_dir + "/worm.state"
 	user = "worm"
@@ -618,6 +631,13 @@ main = function(params)
 				idleMax = val(p[5:])
 			else if p == "-qe" then
 				quietEntry = true
+			else if p == "-merge" then
+				mergeMode = true
+			else if p.indexOf("-fanout=") == 0 then
+				fanoutN = val(p[8:])
+			else if p.indexOf("-install-workers=") == 0 then
+				fanoutN = val(p[17:])
+				installWorkers = true
 			else if p.indexOf("-g=") == 0 then
 				gens = val(p[3:])
 			else if p.indexOf("-t=") == 0 then
@@ -656,6 +676,80 @@ main = function(params)
 	end if
 	if rndN > 8 then
 		rndN = 8
+	end if
+
+	if fanoutN != null or mergeMode then
+		if mergeMode then
+			// union every shard state into the main one
+			allF = []
+			allO = []
+			allD = []
+			for k in range(1, 16)
+				shard = comp.File(home_dir + "/worm.state." + k)
+				if shard == null then
+					continue
+				end if
+				st = stateLoad(comp, home_dir + "/worm.state." + k)
+				for x in st[0]
+					allF.push(x)
+				end for
+				for x in st[1]
+					allO.push(x)
+				end for
+				for x in st[2]
+					allD.push(x)
+				end for
+				shard.delete
+			end for
+			stateSave(comp, statePath, allF, allO, allD)
+			print("worm: merged — frontier " + allF.len + ", owned " + allO.len + ", done " + allD.len)
+			return null
+		end if
+		if fanoutN < 1 then
+			fanoutN = 1
+		end if
+		if fanoutN > 8 then
+			print("worm: capping fanout at 8 (CPU wear scales with workers)")
+			fanoutN = 8
+		end if
+		state = stateLoad(comp, statePath)
+		shards = []
+		for k in range(1, fanoutN)
+			stateSave(comp, home_dir + "/worm.state." + k, [], [], [])
+			shards.push(stateLoad(comp, home_dir + "/worm.state." + k))
+		end for
+		flist = state[0]
+		for i in range(0, flist.len - 1)
+			k = (i + 1) % fanoutN
+			shards[k][0].push(flist[i])
+		end for
+		print("worm: frontier of " + flist.len + " split across " + fanoutN + " workers")
+		for k in range(1, fanoutN)
+			stateSave(comp, home_dir + "/worm.state." + k, shards[k - 1][0], shards[k - 1][1], shards[k - 1][2])
+			print("  terminal " + k + ":  worm -s=" + home_dir + "/worm.state." + k)
+		end for
+		if installWorkers then
+			for k in range(1, fanoutN)
+				ls = "get_shell.launch(home_dir + " + char(34) + "/worm" + char(34) + ", " + char(34) + "-s=" + home_dir + "/worm.state." + k + char(34) + ")"
+				src2 = "// worm worker " + k + char(10) + "main = function(params)" + char(10) + char(9) + ls + char(10) + "end function" + char(10) + "main(params)" + char(10)
+				f2 = comp.File("/etc/init.d/wormworker" + k + ".src")
+				if f2 == null then
+					comp.touch("/etc/init.d", "wormworker" + k + ".src")
+					f2 = comp.File("/etc/init.d/wormworker" + k + ".src")
+				end if
+				if f2 != null then
+					f2.set_content(src2)
+					bw = get_shell.build("/etc/init.d/wormworker" + k + ".src", "/etc/init.d")
+					if bw == "" then
+						print("  worker " + k + " installed in /etc/init.d (runs at every login)")
+					else
+						print("  worker " + k + " build failed: " + bw)
+					end if
+				end if
+			end for
+			print("worm: N parallel workers auto-start at every login (remove with: rm /etc/init.d/wormworker*)")
+		end if
+		return null
 	end if
 
 	if scanOnly then

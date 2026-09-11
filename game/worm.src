@@ -1,5 +1,5 @@
 // worm — aggressive staged harvesting worm (GreyLLM standard)
-// WORM_VERSION = "8" (daemon auto-installs/updates this file)
+// WORM_VERSION = "9" (daemon auto-installs/updates this file)
 //
 // Per host: break in with the standard ~/exploit tool, ESCALATE LOCALLY
 // to root (victim-side exploit -L, password-change attempts, root
@@ -26,8 +26,8 @@
 //            epidemic resumes automatically at every game login)
 //     -o=P   exfil file, appended per host    (default ~/Desktop/bankintel.txt)
 //     -s=P   state file                       (default ~/worm.state)
-//     -u=U -w=P   durable creds on victims    (default worm / W0rmP@ss1x)
-//     -rp=P  password tried for root changes  (default R00tP@ss1x)
+//     -u=U -w=P   durable creds on victims    (default worm / W0rmPass26x — alphanumeric, <=15)
+//     -rp=P  password tried for root changes  (default R00tPass26x)
 //
 // internal mode (launched BY the worm on a victim):
 //   worm -scan -o=PATH     print "ip=A port=N" lines for that network
@@ -588,8 +588,8 @@ main = function(params)
 	exfilPath = home_dir + "/Desktop/bankintel.txt"
 	statePath = home_dir + "/worm.state"
 	user = "worm"
-	pass = "W0rmP@ss1x"
-	rootPass = "R00tP@ss1x"
+	pass = "W0rmPass26x"
+	rootPass = "R00tPass26x"
 	scanOnly = false
 	outOverride = null
 	seeds = []

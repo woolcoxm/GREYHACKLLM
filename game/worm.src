@@ -1,5 +1,5 @@
 // worm — epidemic harvesting worm (GreyLLM standard)
-// WORM_VERSION = "25" (daemon auto-installs/updates this file)
+// WORM_VERSION = "26" (daemon auto-installs/updates this file)
 //
 // STANDALONE: no agent, daemon, or bridge required — needs ~/exploit.src
 // beside it (and compiles it if the binary is missing). Works in
@@ -442,6 +442,12 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 			end if
 		end if
 	end for
+	if containsStr(report, "FATAL no metaxploit") then
+		// the tooling itself is broken — stop the epidemic instead of
+		// burning cycles pretending every host refused entry
+		wlog("worm: FATAL — no metaxploit library on THIS machine. Buy/install it (in-game software shop), then relaunch. Stopping.")
+		return "fatal"
+	end if
 	if containsStr(report, "FOOTHOLD") == false and containsStr(report, "SUCCESS") == false then
 		wlog(mark + ": no entry (requirements unmet or nothing there)")
 		digestHost(comp, ip, "no entry", 0, 0, 0)
@@ -892,6 +898,11 @@ main = function(params)
 				continue
 			end if
 			res = processVictim(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormSrc)
+			if res == "fatal" then
+				wlog("worm: epidemic halted — fix the metaxploit library and relaunch (state resumes)")
+				stateSave(comp, statePath, frontier, owned, done)
+				return null
+			end if
 			infected = infected + 1
 			// counts TRIES; owned.len is the real infection count
 			if typeof(res) == "list" then

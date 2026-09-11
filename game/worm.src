@@ -1,5 +1,5 @@
 // worm — epidemic harvesting worm (GreyLLM standard)
-// WORM_VERSION = "24" (daemon auto-installs/updates this file)
+// WORM_VERSION = "25" (daemon auto-installs/updates this file)
 //
 // STANDALONE: no agent, daemon, or bridge required — needs ~/exploit.src
 // beside it (and compiles it if the binary is missing). Works in
@@ -827,15 +827,45 @@ main = function(params)
 			wlog("worm: cycle cap reached")
 			break
 		end if
-		// random publics only when starved — probing costs CPU too
+		// FRONTIER STARVED — cheap in-process discovery. The world's
+		// internet is sparse: random public IPs are almost always dead,
+		// and the real discovery engine is victim-side scans
+		// (NEWTARGET from child worms). While starved: PING many
+		// candidates directly (no process spawn per corpse) and when
+		// one answers, enumerate its whole network — every device its
+		// router will list joins the frontier.
 		if frontier.len < 1 then
-			for rI in range(1, rndN)
+			probes = rndN * 10
+			if probes < 20 then
+				probes = 20
+			end if
+			found = 0
+			for rI in range(1, probes)
 				rip = rndPublicIp(rndCounter + cycle * 31)
 				rndCounter = rndCounter + 1
 				if knownIp(frontier, owned, done, rip) == false and selfGuard(rip) == false then
-					frontier.push(rip)
+					prp = get_shell.ping(rip)
+					if prp == 1 then
+						frontier.push(rip)
+						found = found + 1
+						rr = get_router(rip)
+						if rr != null then
+							devsR = rr.devices_lan_ip
+							if devsR != null then
+								for dv in devsR
+									if knownIp(frontier, owned, done, dv) == false and selfGuard(dv) == false then
+										frontier.push(dv)
+										found = found + 1
+									end if
+								end for
+							end if
+						end if
+					else
+						done.push(rip)
+					end if
 				end if
 			end for
+			wlog("worm: frontier starved — pinged " + probes + " random publics, " + found + " live targets found")
 		end if
 		worked = 0
 		gainedThisCycle = 0
@@ -850,6 +880,14 @@ main = function(params)
 			// hold home-LAN entries — never attack them, retire them
 			if selfGuard(ip) then
 				wlog("worm: " + ip + " is on YOUR network — retired, never attacked")
+				done.push(ip)
+				continue
+			end if
+			// cheap liveness check in-process: a dead IP costs one
+			// ping here instead of a whole exploit process spawn
+			prC = get_shell.ping(ip)
+			if prC != 1 then
+				wlog("worm: " + ip + " dead (ping " + prC + ") — skipped cheaply")
 				done.push(ip)
 				continue
 			end if

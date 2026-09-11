@@ -1650,9 +1650,8 @@ def ensure_attack_tool(transport):
             and have.group(1) == tool_version.group(1)
         ):
             return False
-        status = (transport.read("status.txt") or "").strip()
-        if status.startswith("busy"):
-            return False
+        # unlike the runtime swap, installing a TOOL file mid-mission is
+        # harmless (nothing executes it until compiled+launched)
         transport._call({
             "op": "write", "path": dest, "content": source,
         })

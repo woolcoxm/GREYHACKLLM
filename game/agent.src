@@ -47,7 +47,7 @@
 // repo's game/agent.src through the hook — no manual re-pasting.
 
 BRIDGE_DIR = home_dir + "/.greyllm"
-AGENT_VERSION = "11"
+AGENT_VERSION = "12"
 STALL_TIMEOUT = 900
 MARKER = "GreyLLM-BRIDGE-READY"
 NL = char(10)
@@ -178,6 +178,12 @@ execute = function(comp, cmd)
 		if payloadF != null then
 			content = payloadF.get_content
 		end if
+		// a raced/regressed payload read must NEVER write an empty source
+		// file (the 0-byte .src bug): reject and let the caller retry
+		if parts[1].indexOf(".src") != null and content.trim.len < 3 then
+			reply(comp, false, "payload arrived empty for " + parts[1] + " (bridge write race) — retry the write_file call", tag)
+			return null
+		end if
 		f = getOrCreateFile(comp, parts[1])
 		if f == null then
 			reply(comp, false, "cannot create " + parts[1], tag)
@@ -197,6 +203,10 @@ execute = function(comp, cmd)
 		content = ""
 		if payloadF != null then
 			content = payloadF.get_content
+		end if
+		if content.trim.len < 1 then
+			reply(comp, false, "payload arrived empty for append to " + parts[1] + " (bridge write race) — retry the call", tag)
+			return null
 		end if
 		f = getOrCreateFile(comp, parts[1])
 		if f == null then

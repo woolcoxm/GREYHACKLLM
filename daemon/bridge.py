@@ -1111,12 +1111,35 @@ def dispatch_tool(config, transport, name, args, tag):
 
     raw_status = (transport.read("status.txt") or "").strip()
     nonce = raw_status.split(" ", 1)[1] if " " in raw_status else ""
+    # PAYLOAD FIRST, verified: the serve loop acts only once cmdflag turns
+    # 'pending', so staging order guarantees the payload is intact before
+    # anything can consume it. An unverified payload racing the game's
+    # flush is how 0-byte .src files were born (observed live: recon.src
+    # written empty, model rewrote it, deleted exploit.src as 'empty').
+    if payload is not None:
+        for attempt in range(3):
+            transport.write("payload.txt", payload)
+            try:
+                back = transport.read("payload.txt") or ""
+            except Exception:  # noqa: BLE001 - transient hook hiccup
+                back = ""
+            if back == payload:
+                break
+            print(
+                f"[bridge] payload verify failed (got {len(back)} chars, "
+                f"want {len(payload)}; retry {attempt + 1}/3)"
+            )
+            time.sleep(0.7)
+        else:
+            return (
+                False,
+                "error: tool payload could not be staged reliably on the "
+                "bridge (file write race) — retry the call.",
+            )
     pairs = [
         ("command.txt", line),
         ("cmdflag.txt", f"pending {nonce}".strip()),
     ]
-    if payload is not None:
-        pairs.append(("payload.txt", payload))
     # the game's tree flushes race these writes (observed live: command.txt
     # landed, cmdflag regressed to a stale value and the serve loop never
     # woke) — verify both landed, retry until they stick

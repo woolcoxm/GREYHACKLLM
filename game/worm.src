@@ -450,104 +450,55 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 		return "done"
 	end if
 
-	// 2. enter with the durable user
-	sh = shell.connect_service(ip, 22, user, pass)
-	if typeof(sh) != "shell" then
-		wlog(mark + ": durable login refused (" + sh + ")")
-		return "done"
+	// 2. the exploit tool (v14) harvested, cracked and escalated AT
+	//    FOOTHOLD TIME — re-login is obsolete: http-only hosts have no
+	//    ssh:22 to return to, create_user is root-only, /etc/passwd is
+	//    guest-denied. Read what the foothold already extracted.
+	harvestedFiles = 0
+	harvestedChars = 0
+	for line in report.split(NL)
+		h = line.indexOf("HARVEST ")
+		if h != null then
+			harvestedFiles = harvestedFiles + 1
+			op = line.indexOf("(")
+			cp2 = line.indexOf(" chars)")
+			if op != null and cp2 != null then
+				harvestedChars = harvestedChars + val(line[op + 1:cp2])
+			end if
+		end if
+	end for
+	if harvestedFiles > 0 then
+		wlog(mark + ": OWNED — harvested " + harvestedFiles + " files (" + harvestedChars + " chars) to " + exfilPath)
 	end if
-	vic = sh.host_computer
-	if vic == null then
-		wlog(mark + ": shell without host_computer")
-		return "done"
-	end if
-	vhome = "/home/" + user
+	// entries for the state file: hosts we OWNED get kept with the
+	// durable creds; ssh-capable hosts can still be re-entered manually
+	ownedNow = containsStr(report, "OWNED ")
+	vhome = "/tmp/worms"
 	drops = []
 
-	// 3. drop our sources + metaxploit if the victim lacks it
-	if exSrc != null then
-		if dropText(vic, vhome + "/exploit.src", exSrc) then
-			drops.push("exploit.src")
-		end if
-	end if
-	if wormSrc != null then
-		if dropText(vic, vhome + "/worm.src", wormSrc) then
-			drops.push("worm.src")
-		end if
-	end if
-	if vic.File("/lib/metaxploit.so") == null then
-		sc = sh.scp("/lib/metaxploit.so", vhome + "/", shell)
-		if typeof(sc) == "string" then
-			wlog(mark + ": metaxploit scp failed: " + sc)
-		else
-			drops.push("metaxploit.so")
-		end if
-	end if
-
-	// 4. ESCALATE — root before harvest (root reads every home)
-	harvestShell = sh
-	rooted = false
-	if exSrc != null and drops.indexOf("exploit.src") != null then
-		esc = escalateLocal(comp, sh, vhome, user, pass, rootPass)
-		if typeof(esc) == "list" then
-			harvestShell = esc[1]
-			rooted = true
-		end if
-		drops.push("exploit_out.txt")
-	end if
-	hv = harvestShell.host_computer
-	if hv == null then
-		hv = vic
-	end if
-
-	// 5. harvest credentials (as root when we got it)
-	got = harvestHomes(comp, exfilPath, ip, hv)
-	if rooted then
-		harvestRootExtras(comp, exfilPath, ip, hv)
-	end if
-	badge = " [user]"
-	if rooted then
-		badge = " [ROOT]"
-	end if
-	wlog(mark + badge + ": harvested " + got + " credential files")
-
-	// 6. spread — scan the victim's network from inside it
+	// 3-7 (v14): the OLD post-login pipeline (drop/build/escalate/
+	// harvest/clean via connect_service shell) is retired — v14's
+	// exploit does all of it AT FOOTHOLD TIME. The worm's remaining
+	// job per host: count the take, mark state, and move on.
+	//
+	// Network spread still uses the victim-side scan when a SHELL
+	// foothold was available — the exploit tool reports it already
+	// dropped+ran worm -scan inside /tmp; its results ride in the
+	// report as NEWTARGET lines.
 	newIps = []
-	if drops.indexOf("worm.src") != null then
-		b2 = sh.build(vhome + "/worm.src", vhome)
-		if b2 == "" then
-			lr2 = sh.launch(vhome + "/worm", "-scan -o=" + vhome + "/wscan.txt")
-			if lr2 == 1 then
-				scan = readFileOr(vic, vhome + "/wscan.txt", "")
-				if scan != null and scan != "" then
-					for line in scan.split(NL)
-						line = line.trim
-						if line.indexOf("ip=") == 0 then
-							rest = line[3:]
-							sp = rest.indexOf(" ")
-							if sp == null then
-								newIps.push(rest)
-							else
-								newIps.push(rest[:sp])
-							end if
-						end if
-					end for
-				end if
-				drops.push("wscan.txt")
-			else
-				print(mark + ": victim-side scan failed: " + lr2)
+	for line in report.split(NL)
+		nt = line.indexOf("NEWTARGET ")
+		if nt != null then
+			nip = line[nt + 10:].trim
+			if nip != "" then
+				newIps.push(nip)
 			end if
-		else
-			print(mark + ": worm build on victim failed: " + b2)
 		end if
+	end for
+	if ownedNow then
+		return ["owned", newIps]
 	end if
-	drops.push("exploit")
-	drops.push("worm")
-
-	// 7. stealth — remove every artifact, wipe the log
-	cleanDrops(vic, vhome, drops)
-	clearLog(vic)
-	wlog(mark + ": cleaned " + drops.len + " artifacts, log wiped")
+	wlog(mark + ": foothold without harvest (denied homes or empty boxes)")
 	return ["owned", newIps]
 end function
 

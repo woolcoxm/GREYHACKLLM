@@ -115,10 +115,10 @@ AGENT_TOOLS = [
     {
         "name": "write_file",
         "description": "Create or overwrite a text file on the in-game "
-        "machine. Write runnable programs to /home/<player>/<name> WITHOUT "
-        "a file extension — .src files cannot be executed by name, /bin is "
-        "not writable by regular users, and home programs run by name from "
-        "the home directory.",
+        "machine — write_file OVERWRITES, so fix and rewrite the same file "
+        "to iterate. One file per tool purpose, named by purpose; versioned "
+        "copies (tool2.src) are rejected. Delete tools (source AND binary) "
+        "when their purpose is served — disk space is limited.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -1070,6 +1070,19 @@ def dispatch_tool(config, transport, name, args, tag):
     path = str(args.get("path", ""))
     is_program = path.endswith(".src") or path.startswith("/bin/")
     if name == "write_file" and is_program:
+        # versioned tool names (recon2.src, pwn4.src) are the disk-filling
+        # anti-pattern: fix and overwrite the purposeful original instead.
+        # base >= 3 chars avoids false positives like md5.src / x2.src
+        stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        base = re.sub(r"\d+$", "", stem)
+        if base != stem and len(base) >= 3:
+            return False, (
+                f"versioned tool names are forbidden — {path} is a new copy "
+                f"of an existing tool. ITERATE: write_file the ORIGINAL "
+                f"({base}.src) with the fixed code (write_file overwrites), "
+                f"recompile, and rerun. The machine's hard drive is small; "
+                "one file per purpose."
+            )
         syntax_error = validate_greyscript(payload or "")
         if syntax_error:
             return (

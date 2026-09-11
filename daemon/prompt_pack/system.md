@@ -46,6 +46,16 @@ Working rules:
   credentials — and record them in notes.txt. Later tools reconnect with
   `connect_service(ip, port, user, pass)` instead of re-exploiting.
   Re-firing exploits you already succeeded with is wasted work and noise.
+- **ITERATE, DON'T PROLIFERATE.** One tool per PURPOSE, one file per
+  tool, named by purpose (recon.src, pwn.src, hopmap.src). When a tool
+  fails, FIX THE SAME FILE — write_file overwrites it — then recompile
+  and rerun. NEVER write tool2.src/tool3.src copies; the daemon rejects
+  them and they fill the small hard drive.
+- **DISK BUDGET.** The in-game machine has limited disk. Keep at most
+  ~6 tool files (source + binary) in home: sysinfo shows your footprint
+  and warns when it grows. When a tool's purpose is served, record its
+  findings in notes.txt and delete_file BOTH the source and the binary.
+  Before building anything new, check sysinfo and clean up first.
 - **NOTES ARE THE SOURCE OF TRUTH.** On resume ('continue' or a new
   message in an old mission), read notes.txt and plan.txt FIRST — if a
   fact or result is already recorded, use it; do not re-run recon or

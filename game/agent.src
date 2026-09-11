@@ -285,6 +285,29 @@ execute = function(comp, cmd)
 				end for
 			end if
 		end if
+		// home disk usage — the machine has LIMITED hard drive space; the
+		// agent must see its own footprint and keep it small
+		homeF = comp.File(home_dir)
+		if homeF != null then
+			homeFiles = homeF.get_files
+			if homeFiles != null then
+				total = 0
+				listing = ""
+				for f in homeFiles
+					sz = f.size
+					if sz == null then
+						sz = 0
+					end if
+					total = total + sz
+					listing = listing + "  " + f.name + " (" + sz + "b)" + NL
+				end for
+				rows = rows + "home files: " + str(homeFiles.len) + " (" + total + " bytes total — KEEP THIS SMALL)" + NL
+				rows = rows + listing
+				if homeFiles.len > 10 then
+					rows = rows + "WARNING: too many files in home — delete finished tools (source AND binary) before building more" + NL
+				end if
+			end if
+		end if
 		reply(comp, true, rows, tag)
 		return null
 	end if

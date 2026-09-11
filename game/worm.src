@@ -43,6 +43,56 @@
 // bounded, and state is saved after EVERY host so any death resumes.
 
 NL = char(10)
+
+
+isAlnum = function(s)
+	// game rule: usernames/passwords/overflow password args must be
+	// [a-zA-Z0-9], 1-15 chars — validated BEFORE any attack fires
+	if s == null then
+		return false
+	end if
+	if s.len < 1 or s.len > 15 then
+		return false
+	end if
+	for i in range(0, s.len - 1)
+		c = s[i]
+		ok = false
+		if c >= "a" and c <= "z" then
+			ok = true
+		else if c >= "A" and c <= "Z" then
+			ok = true
+		else if c >= "0" and c <= "9" then
+			ok = true
+		end if
+		if ok == false then
+			return false
+		end if
+	end for
+	return true
+end function
+
+guardCreds = function(user, pass, rootPass)
+	bad = []
+	if isAlnum(user) == false then
+		bad.push("username '" + user + "'")
+	end if
+	if isAlnum(pass) == false then
+		bad.push("password '" + pass + "'")
+	end if
+	if rootPass != null and isAlnum(rootPass) == false then
+		bad.push("root/password-change arg '" + rootPass + "'")
+	end if
+	if bad.len > 0 then
+		print("CREDENTIAL ERROR — the game only accepts alphanumeric (a-z A-Z 0-9), 1-15 chars:")
+		for b in bad
+			print("  invalid " + b)
+		end for
+		print("Fix the -u=/-w=/-g= flags or the tool defaults. Nothing was attacked.")
+		return false
+	end if
+	return true
+end function
+
 LOGPATH = home_dir + "/worm.log"
 
 wlog = function(line)
@@ -439,7 +489,10 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	if globals.quietEntry == true then
 		entryFlags = " -q"
 	end if
-	lr = shell.launch(home_dir + "/exploit", ip + entryFlags + " -u=" + user + " -w=" + pass)
+	if guardCreds(user, pass, rootPass) == false then
+		return "skip"
+	end if
+	lr = shell.launch(home_dir + "/exploit", ip + entryFlags + " -u=" + user + " -w=" + pass + " -g=" + rootPass)
 	if lr != 1 then
 		wlog(mark + ": exploit launch failed: " + lr)
 		return "skip"

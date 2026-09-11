@@ -1,0 +1,257 @@
+// secure — one-shot multiplayer box hardener (GreyLLM standard)
+// SECURE_VERSION = "1"
+//
+// Hardens YOUR machine for online multiplayer: rotates every user
+// password to strong alphanumeric ones, removes the guest account,
+// strips world-access from credential bait (Bank.txt / Mail.txt /
+// wallet files), optionally deletes them, kills non-essential network
+// services, and removes hacking contraband (~/exploit, ~/worm and
+// friends — leaving attack tools on an MP box is an invitation).
+// Ends with the manual checklist the game has no API for (router
+// firewall, port forwards, apt-get upgrade).
+//
+// RUN AS ROOT:  login root  →  secure
+//
+// usage: secure [flags]
+//   --dry            show what would happen, change nothing
+//   --shred          DELETE Bank.txt/Mail.txt/wallet files outright
+//                    (they are credential bait; keep offline backups)
+//   --keep=u1,u2     do NOT rotate these usernames' passwords
+//   --kill=a,b,c     services to close (default: http,ftp,smtp,chat,
+//                    repository — ssh is KEPT so you keep remote access)
+//   --keep-tools     do not delete the exploit/worm toolset
+//
+// NEW PASSWORDS ARE PRINTED ONCE — write them down before closing the
+// terminal. Generated fresh from the clock each run, alphanumeric only,
+// 12 chars (game limit is 15; special characters are rejected).
+
+NL = char(10)
+CHARS = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+genPass = function(salt)
+	// time() varies across runs, rnd() varies within a run (deterministic
+	// per session — the time mix makes passwords differ every execution);
+	// floor() everywhere: time() is a float, no integer division exists
+	p = ""
+	for i in range(0, 11)
+		mix = floor(time()) * (i + 3) * (salt + 7) + floor(rnd() * 100003)
+		idx = floor(mix % CHARS.len)
+		if idx < 0 then
+			idx = idx * -1
+		end if
+		p = p + CHARS[idx]
+	end for
+	return p
+end function
+
+main = function(params)
+	dry = false
+	shred = false
+	keepTools = false
+	keepUsers = ""
+	killList = "http-server,ftp-server,smtp-server,chat-server,repository-server"
+	for p in params
+		if p == "--dry" then
+			dry = true
+		else if p == "--shred" then
+			shred = true
+		else if p == "--keep-tools" then
+			keepTools = true
+		else if p.indexOf("--keep=") == 0 then
+			keepUsers = "," + p[7:].lower + ","
+		else if p.indexOf("--kill=") == 0 then
+			killList = p[7:]
+		end if
+	end for
+
+	comp = get_shell.host_computer
+	if active_user != "root" then
+		print("secure: must run as root (login root first) — currently: " + active_user)
+		return null
+	end if
+
+	// ---- 1. rotate every user password --------------------------------
+	print(NL + "== password rotation ==")
+	passwdF = comp.File("/etc/passwd")
+	if passwdF == null then
+		print("  cannot read /etc/passwd — skipping rotation")
+	else
+		lines = passwdF.get_content.split(NL)
+		for line in lines
+			line = line.trim
+			if line == "" then
+				continue
+			end if
+			parts = line.split(":")
+			if parts.len < 1 then
+				continue
+			end if
+			u = parts[0]
+			if u == "" then
+				continue
+			end if
+			if keepUsers.indexOf("," + u.lower + ",") != null then
+				print("  " + u + ": kept (per --keep)")
+				continue
+			end if
+			np = genPass(u.len + lines.len)
+			if dry then
+				print("  " + u + ": would set new password")
+			else
+				r = comp.change_password(u, np)
+				if r == 1 then
+					print("  " + u + ": " + np + "   <-- WRITE THIS DOWN")
+				else
+					print("  " + u + ": FAILED (" + r + ")")
+				end if
+			end if
+		end for
+	end if
+
+	// ---- 2. remove the guest account -----------------------------------
+	print(NL + "== guest account ==")
+	if dry then
+		print("  would delete user guest (home kept)")
+	else
+		r = comp.delete_user("guest")
+		print("  guest deleted: " + r)
+	end if
+
+	// ---- 3. credential bait: lock down or shred ------------------------
+	print(NL + "== credential files (Bank.txt / Mail.txt / wallets) ==")
+	home = comp.File("/home")
+	handled = 0
+	if home != null then
+		users2 = home.get_folders
+		if users2 != null then
+			for uf in users2
+				files = uf.get_files
+				if files == null then
+					continue
+				end if
+				for f in files
+					nm = f.name.lower
+					isBait = false
+					if nm.indexOf("bank") != null or nm.indexOf("mail") != null then
+						isBait = true
+					else if nm.indexOf("wallet") != null then
+						isBait = true
+					end if
+					if isBait == false then
+						continue
+					end if
+					handled = handled + 1
+					if shred then
+						if dry then
+							print("  would DELETE " + uf.name + "/" + f.name)
+						else
+							print("  deleted " + uf.name + "/" + f.name + ": " + f.delete)
+						end if
+					else
+						if dry then
+							print("  would chmod o-wrx " + uf.name + "/" + f.name)
+						else
+							r = f.chmod("o-wrx")
+							print("  locked " + uf.name + "/" + f.name + " (" + r + ")")
+						end if
+					end if
+				end for
+			end for
+		end if
+	end if
+	if handled == 0 then
+		print("  none found")
+	end if
+
+	// ---- 4. close non-essential services -------------------------------
+	print(NL + "== services ==")
+	procs = comp.show_procs
+	kills = killList.split(",")
+	closed = 0
+	if procs == null then
+		print("  cannot list processes")
+	else
+		for line in procs.split(NL)
+			for svc in kills
+				svc = svc.trim
+				if svc == "" then
+					continue
+				end if
+				if line.indexOf(svc) != null then
+					// line format: user PID CPU MEM command — pick the
+					// numeric field right before the service name
+					parts = line.split(" ")
+					pid = null
+					i = 0
+					while i < parts.len - 1
+						if parts[i + 1].indexOf(svc) == 0 and parts[i].indexOf("0.") != 0 then
+							v = val(parts[i])
+							if v != null and v > 0 then
+								pid = v
+							end if
+						end if
+						i = i + 1
+					end while
+					if pid != null then
+						if dry then
+							print("  would close " + svc + " (pid " + pid + ")")
+						else
+							r = comp.close_program(pid)
+							print("  closed " + svc + " (pid " + pid + "): " + r)
+							closed = closed + 1
+						end if
+					end if
+				end if
+			end for
+		end for
+	end if
+	if closed == 0 and dry == false then
+		print("  no listed services found running")
+	end if
+
+	// ---- 5. contraband: remove the toolset ------------------------------
+	print(NL + "== contraband (attack tools) ==")
+	if keepTools then
+		print("  kept (per --keep-tools)")
+	else
+		stuff = ["exploit", "exploit.src", "worm", "worm.src", "worm.state", "worm.log", "exploit_out.txt"]
+		for nm in stuff
+			f = comp.File(home_dir + "/" + nm)
+			if f == null then
+				continue
+			end if
+			if dry then
+				print("  would delete ~/" + nm)
+			else
+				print("  deleted ~/" + nm + ": " + f.delete)
+			end if
+		end for
+		initd = comp.File("/etc/init.d/worm")
+		if initd != null then
+			if dry then
+				print("  would delete /etc/init.d/worm")
+			else
+				print("  deleted /etc/init.d/worm: " + initd.delete)
+			end if
+		end if
+	end if
+
+	// ---- 6. the manual checklist (no game API for these) ----------------
+	print(NL + "== manual checklist (do these by hand) ==")
+	print("  1. Router firewall: Map -> your router -> firewall ON")
+	print("  2. Remove every port forward you do not strictly need")
+	print("  3. apt-get update && apt-get upgrade — updated libraries have")
+	print("     fewer exploitable vulnerabilities (THE big one)")
+	print("  4. Bank: change its password and PIN; never reuse box passwords")
+	print("  5. Keep ssh-server running ONLY if you need remote access;")
+	print("     everything else stays closed")
+	print("  6. Re-run this script after every game update")
+	doneTag = "secure: done"
+	if dry then
+		doneTag = doneTag + " (dry run — nothing changed)"
+	end if
+	print(NL + doneTag)
+	return null
+end function
+
+main(params)

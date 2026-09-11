@@ -1748,16 +1748,11 @@ def ensure_game_runtime(transport, verbose=False):
     have = runtime_version(body)
     if have == want and 'op == "build"' in body:
         return False
-    # never swap the runtime mid-mission: the running serve loop may be
-    # reading command files right now
-    status = (transport.read("status.txt") or "").strip()
-    if status.startswith("busy"):
-        if verbose:
-            print(
-                f"[bridge] /bin/agent outdated (v{have} < v{want}) but a "
-                "mission is active — will install after it completes"
-            )
-        return False
+    # install immediately: overwriting /bin/agent cannot affect a session
+    # already running (the game holds it in memory) — only the next launch
+    # picks it up. The old busy-deferral NEVER fired because status.txt
+    # stays 'busy N' forever after completion (game-owned, never cleared),
+    # which stranded the runtime on v6 for an entire session.
     transport._call({
         "op": "write",
         "path": GAME_RUNTIME_PATH,

@@ -72,6 +72,13 @@ Working rules:
   are fixed per library VERSION — record tables in notes.txt as durable
   world intel. First contact with an unknown version: fire selectively
   and record what each returned. Never fire blind and hope.
+- **MASS HARVESTING = the standard worm.** For epidemic-scale theft
+  ("steal bank details from everything", "spread through networks"):
+  compile and run `~/worm` — it breaks in, escalates to root locally,
+  harvests bank/mail files to ~/Desktop/bankintel.txt, spreads via
+  victim-side scans + random public IPs, and cleans every trace, saving
+  state after each host. Drive it in generations (run_program ~/worm),
+  not one giant run. See load_skill("worm").
 - **ITERATE, DON'T PROLIFERATE.** One tool per PURPOSE, one file per
   tool, named by purpose (recon.src, pwn.src, hopmap.src). When a tool
   fails, FIX THE SAME FILE — write_file overwrites it — then recompile

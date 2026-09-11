@@ -1793,7 +1793,11 @@ def complete_request(transport, nonce, reply):
 
 
 GAME_RUNTIME_PATH = "/bin/agent"
-ATTACK_TOOL_NAME = "exploit.src"
+ATTACK_TOOL_FILES = {
+    # installed file -> its version marker constant
+    "exploit.src": "EXPLOIT_VERSION",
+    "worm.src": "WORM_VERSION",
+}
 
 
 def game_runtime_source():
@@ -1803,8 +1807,8 @@ def game_runtime_source():
     )
 
 
-def attack_tool_source():
-    return (DAEMON_DIR.parent / "game" / ATTACK_TOOL_NAME).read_text(
+def attack_tool_source(name):
+    return (DAEMON_DIR.parent / "game" / name).read_text(
         encoding="utf-8", errors="replace"
     )
 
@@ -1813,30 +1817,27 @@ def ensure_attack_tool(transport):
     """Keep the standard universal exploitation tool installed in the
     player's home (next to the bridge folder). The agent compiles it once
     (compile_program) and reuses it for every target via flags."""
+    installed_any = False
     try:
-        source = attack_tool_source()
-        tool_version = re.search(
-            r"EXPLOIT_VERSION = \"([^\"]+)\"", source
-        )
         home = transport._path("plan.txt").rsplit("/.greyllm", 1)[0]
-        dest = f"{home}/{ATTACK_TOOL_NAME}"
-        body = (transport._call(
-            {"op": "read", "path": dest}
-        ) or {}).get("content") or ""
-        have = re.search(r"EXPLOIT_VERSION = \"([^\"]+)\"", body)
-        if (
-            have
-            and tool_version
-            and have.group(1) == tool_version.group(1)
-        ):
-            return False
-        # unlike the runtime swap, installing a TOOL file mid-mission is
-        # harmless (nothing executes it until compiled+launched)
-        transport._call({
-            "op": "write", "path": dest, "content": source,
-        })
-        print(f"[bridge] installed {dest} (universal exploit tool)")
-        return True
+        for fname, marker in ATTACK_TOOL_FILES.items():
+            source = attack_tool_source(fname)
+            want = re.search(marker + r' = "([^"]+)"', source)
+            dest = f"{home}/{fname}"
+            body = (transport._call(
+                {"op": "read", "path": dest}
+            ) or {}).get("content") or ""
+            have = re.search(marker + r' = "([^"]+)"', body)
+            if have and want and have.group(1) == want.group(1):
+                continue
+            # unlike the runtime swap, installing a TOOL file mid-mission
+            # is harmless (nothing executes it until compiled+launched)
+            transport._call({
+                "op": "write", "path": dest, "content": source,
+            })
+            print(f"[bridge] installed {dest} ({marker.lower()})")
+            installed_any = True
+        return installed_any
     except Exception as exc:  # noqa: BLE001 - opportunistic
         print(f"[bridge] attack tool install skipped: {exc}")
         return False

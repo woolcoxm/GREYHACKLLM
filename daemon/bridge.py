@@ -90,6 +90,7 @@ BRIDGE_FILES = (
     "cmdflag.txt",   # daemon-owned pending signal, fixed row
     "command_status.txt",   # game-owned ("done/error <nonce>")
     "command_result.txt",   # game-owned
+    "thinking.txt",  # daemon-owned status stream, printed in game live
 )
 
 AGENT_TOOLS = [
@@ -1210,6 +1211,20 @@ def mission_state(transport):
     return "\n\n".join(parts)
 
 
+def stream_thinking(transport, round_no, text):
+    """Publish the model's interim thinking to the bridge so the in-game
+    serve loop can print it live — otherwise the game terminal looks frozen
+    during (sometimes minutes-long) LLM rounds. Best-effort: a missing file
+    (old in-game runtime) or write failure must never break a round."""
+    line = " ".join(text.split())[:240]
+    if not line:
+        return
+    try:
+        transport.write("thinking.txt", f"[{round_no}] {line}")
+    except Exception as exc:  # noqa: BLE001 - display-only channel
+        print(f"[bridge] thinking stream skipped: {exc}")
+
+
 def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
     """Run the harness until the model stops calling tools.
 
@@ -1275,6 +1290,7 @@ def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
         interim = extract_text(blocks).strip()
         if interim:
             log(f"thinking: {interim[:160]}")
+            stream_thinking(transport, round_no, interim)
         if not tool_uses:
             final = interim
             if not final:

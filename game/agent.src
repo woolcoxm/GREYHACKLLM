@@ -340,6 +340,15 @@ serve = function(comp)
 	stalled = 0
 	doneTarget = "done " + globals.nonce
 	cmdTarget = "pending " + globals.nonce
+	// thinking stream: the daemon publishes the model's interim thoughts to
+	// thinking.txt; print new content live so long LLM rounds don't look
+	// like a frozen terminal. Seed lastThink with the current content so a
+	// previous mission's leftover line never reprints.
+	lastThink = null
+	thinkF0 = comp.File(BRIDGE_DIR + "/thinking.txt")
+	if thinkF0 != null then
+		lastThink = thinkF0.get_content
+	end if
 	while stalled < STALL_TIMEOUT
 		// re-fetch every poll; done.txt/cmdflag.txt are written in place
 		// by the daemon and matched by this task's nonce (strict match —
@@ -389,6 +398,16 @@ serve = function(comp)
 				stalled = 0
 			end if
 		end if
+		// live thinking stream: print when the daemon publishes a new line
+		thinkF = comp.File(BRIDGE_DIR + "/thinking.txt")
+		if thinkF != null then
+			th = thinkF.get_content
+			if th != null and th != "" and th != lastThink then
+				print("[thought] " + th)
+				lastThink = th
+				stalled = 0
+			end if
+		end if
 		wait(1)
 		stalled = stalled + 1
 	end while
@@ -415,7 +434,7 @@ end function
 initDaemonFiles = function(comp)
 	// daemon-owned files need distinct one-time content so each sits on
 	// its own row (touched-empty files would all share the "" row)
-	pairs = [["response.txt", "r0"], ["done.txt", "d0"], ["command.txt", "c0"], ["payload.txt", "p0"], ["cmdflag.txt", "f0"], ["command_status.txt", "t0"], ["command_result.txt", "u0"]]
+	pairs = [["response.txt", "r0"], ["done.txt", "d0"], ["command.txt", "c0"], ["payload.txt", "p0"], ["cmdflag.txt", "f0"], ["command_status.txt", "t0"], ["command_result.txt", "u0"], ["thinking.txt", "k0"]]
 	for pair in pairs
 		f = getOrCreateFile(comp, BRIDGE_DIR + "/" + pair[0])
 		if f != null then

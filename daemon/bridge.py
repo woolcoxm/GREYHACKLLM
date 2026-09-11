@@ -1072,6 +1072,22 @@ def dispatch_tool(config, transport, name, args, tag):
     path = str(args.get("path", ""))
     is_program = path.endswith(".src") or path.startswith("/bin/")
     if name == "write_file" and is_program:
+        # exploit-FIRING logic never belongs in custom tools — the standard
+        # ~/exploit tool covers every target via flags (recon/fingerprint
+        # code that only net_use+dump_lib+scan is fine)
+        if ".overflow(" in (payload or "") and "EXPLOIT_VERSION" not in (
+            payload or ""
+        ):
+            return False, (
+                "custom exploit-firing code is forbidden — the standard "
+                "~/exploit tool already does this for EVERY target via "
+                "flags. Run it: exploit <ip> (all ports), -p=0 kernel, "
+                "-a=AREA -x=NAME re-fire a known vuln, -g=ARG overflow "
+                "arg, -u/-w durable user, -l list-only, -o=OUT when "
+                "deployed on a hop (copy ~/exploit + metaxploit.so there, "
+                "launch it, read its output file). If it truly lacks a "
+                "capability, use ask_user instead of duplicating it."
+            )
         # versioned tool names (recon2.src, pwn4.src) are the disk-filling
         # anti-pattern: fix and overwrite the purposeful original instead.
         # base >= 3 chars avoids false positives like md5.src / x2.src

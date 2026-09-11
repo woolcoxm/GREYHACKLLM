@@ -221,9 +221,27 @@ execute = function(comp, cmd)
 		end if
 		launchResult = get_shell.launch(parts[1], args)
 		out = ""
-		outFile2 = comp.File(BRIDGE_DIR + "/out.txt")
-		if outFile2 != null then
-			out = outFile2.get_content
+		if launchResult == 1 then
+			// poll out.txt: launched programs write results asynchronously,
+			// so give them up to ~10s and return once output stops changing
+			lastOut = null
+			stable = 0
+			for i in range(0, 9)
+				wait(1)
+				outFile2 = comp.File(BRIDGE_DIR + "/out.txt")
+				if outFile2 != null then
+					out = outFile2.get_content
+				end if
+				if out == lastOut then
+					stable = stable + 1
+				else
+					stable = 0
+				end if
+				lastOut = out
+				if stable >= 2 then
+					break
+				end if
+			end for
 		end if
 		reply(comp, true, "launch returned: " + launchResult + NL + "out.txt follows:" + NL + out, tag)
 		return null

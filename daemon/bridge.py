@@ -74,7 +74,7 @@ DEFAULT_CONFIG = {
     "max_history": 6,
     "request_timeout": 300,
     "max_tokens": 16384,
-    "max_tool_rounds": 25,
+    "max_tool_rounds": 40,
     "tool_timeout": 120,
 }
 
@@ -180,10 +180,11 @@ AGENT_TOOLS = [
         "name": "run_program",
         "description": "Launch a BINARY program (made with "
         "compile_program) with optional arguments. Raw .src source files "
-        "cannot be launched — compile them first. The launched program's "
-        "terminal output is not capturable: have it append results to the "
-        "bridge out.txt (sysinfo reports the bridge dir) or verify via "
-        "read_file.",
+        "cannot be launched — compile them first. The program's terminal "
+        "output is not capturable, so this tool waits ~10s and returns "
+        "whatever the program appended to the bridge out.txt (sysinfo "
+        "reports the bridge dir) — have your programs append results "
+        "there.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -958,12 +959,46 @@ def dispatch_tool(config, transport, name, args, tag):
 # --- Agent loop ---------------------------------------------------------
 
 
+MISSION_STATE_FILES = ("plan.txt", "notes.txt")
+
+
+def mission_state(transport):
+    """Load the agent's persistent plan/notes from the bridge folder so they
+    survive across rounds without relying on the model's context recall."""
+    try:
+        plan = (transport.read("plan.txt") or "").strip()
+        notes = (transport.read("notes.txt") or "").strip()
+    except Exception as exc:  # transport hiccup must never kill a round
+        print(f"[bridge] mission_state read failed: {exc}")
+        return ""
+    if not plan and not notes:
+        return ""
+    parts = [
+        "## Mission state (auto-loaded every round — keep these current "
+        "with write_file/append_file)"
+    ]
+    parts.append(
+        "### plan.txt (task list — mark steps [x] as you complete them)\n"
+        + (plan or "(empty — write your plan here before acting)")
+    )
+    if notes:
+        parts.append(
+            "### notes.txt (facts learned: IPs, ports, services, versions, "
+            "credentials, vulnerabilities)\n" + notes
+        )
+    return "\n\n".join(parts)
+
+
 def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
     """Run the harness until the model stops calling tools."""
     messages = list(history) + [{"role": "user", "content": prompt}]
     final = ""
     for round_no in range(1, config["max_tool_rounds"] + 1):
-        data = llm_fn(system_prompt, messages, with_tools=True)
+        system_this = system_prompt
+        state = mission_state(transport)
+        if state:
+            system_this = system_prompt + "\n\n---\n\n" + state
+        data = llm_fn(system_this, messages, with_tools=True)
         blocks = data.get("content", [])
         messages.append({"role": "assistant", "content": blocks})
         tool_uses = [b for b in blocks if b.get("type") == "tool_use"]

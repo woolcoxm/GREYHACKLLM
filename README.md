@@ -110,7 +110,17 @@ The daemon window logs every request and tool call with timestamps.
 
 `sysinfo`, `list_dir`, `read_file`, `write_file`, `append_file`,
 `make_dir`, `delete_file`, `compile_program` (source → runnable binary),
-`run_program` (launches binaries; source must be compiled first).
+`run_program` (launches binaries, waits ~10s and returns whatever the
+program appended to the bridge `out.txt`), and `api_doc` (searches a
+complete generated GreyScript API reference — 316 entries from the game's
+own metadata — so the model never has to guess an API).
+
+The agent runs a mission doctrine: it writes a plan to the bridge
+`plan.txt`, records every learned fact (IPs, ports, credentials,
+vulnerabilities) in `notes.txt`, and both are re-injected into its context
+every round — persistent memory across a whole task. Give it goals, not
+instructions: "root the bank", "map the local network", "build and test a
+port scanner". Up to 40 tool rounds per mission.
 
 Every `.src` the model writes is syntax-checked with the real GreyScript
 parser before it reaches the game.

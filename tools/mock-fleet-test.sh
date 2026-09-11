@@ -73,6 +73,11 @@ fleetMain = function(params)
 	globals.mintCount = 0
 	globals.deployedBin = null
 	globals.deployedMx = null
+	globals.stagedBinPath = null
+	globals.stagedBinName = null
+	globals.stagedSrcPath = null
+	globals.duds = []
+	globals.dudsPath = null
 	globals.persist = false
 	if ladder then
 		// stub child binary: a minimal program built as ~/exploit so

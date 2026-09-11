@@ -58,10 +58,21 @@ WORM RESEARCH APPLIED (the who/what/when/why/how of real worms):
   learns each win
 - payload staging (Slammer/Conficker) -> depth-0 children deploy the
   tiny scan stager, not the full assault
-- CAMOUFLAGE / oligomorphic naming (1260/Conficker renaming) -> every
-  deployed copy lands under a randomized system-ish name (sysmon372,
-  netd81, svchost9...), never "exploit"; children learn their own name
-  via -bin= and mint fresh names for THEIR children
+- CAMOUFLAGE / oligomorphic naming (1260/Conficker renaming) -> scp
+  CANNOT rename (verified in the game's own source: the destination
+  must be a folder and the file keeps its own name), so each assault
+  REBUILDS itself from source under a randomized system-ish name
+  (sysmon372, netd81, svchost9...) — a genuinely fresh build per host,
+  never "exploit". Falls back to the plain name if no source is
+  available (deployment never breaks for camouflage)
+- MEMORY (v34): worm.wins = hit-list (proven exploit pairs fire
+  FIRST — the file is now actually loaded back, it previously was
+  only written) and worm.duds = skip-list (null results are
+  deterministic per library version — known-dead vuln pairs are never
+  fired again anywhere in the epidemic). Both relay up the tree
+- SUMMARY census at finish of every host: shells=N (root/user/guest),
+  computers=N (root), rootShell=yes/no, deployed=<name> — one line
+  that cannot lie about what was actually obtained
 - persistence (autorun.inf analogue) -> `-persist` (OPT-IN, evidence!)
   copies the child into the VICTIM's /etc/init.d so the infection
   auto-resumes at every game login

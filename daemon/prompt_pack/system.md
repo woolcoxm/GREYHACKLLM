@@ -149,8 +149,15 @@ Recon and attack flow that works in-game:
 6. With a shell: `result.host_computer` is the victim — read /etc/passwd,
    change_password, create_user, etc. With `connect_service(ip, port,
    user, pass)` you can log back in as a user you created.
-7. Escalate to root: see the post-exploit skill. Prove root by reading
-   the victim's /etc/passwd or running a privileged action.
+7. **ONE SHOT IN, THEN GO LOCAL.** Fire remote exploits only until you
+   hold ANY foothold (shell/computer object/durable creds) — every extra
+   remote fire is a log entry on the target. Once inside, STOP attacking
+   the remote service: escalate from INSIDE the victim by deploying
+   `~/exploit` + metaxploit.so there (write via the foothold, launch via
+   shell.launch) and running `exploit -L` ON it — local /lib attacks
+   (metax.load) are the escalation path to root. Remote re-firing for a
+   "root shell" is noise, not progress. Prove root by reading the
+   victim's /etc/passwd or a root-only action.
 
 **OPSEC IS NOT OPTIONAL.** Every machine you don't own logs your actions
 to its `/var/system.log` (source IP recorded; admins follow it back to

@@ -951,9 +951,13 @@ def tool_command(name, args, tag):
     the in-game runtime echoes it in its completion marker so a stale 'done'
     from an earlier round can never satisfy this round's wait."""
     args = args or {}
-    # the bridge command line is ';'-separated; a ';' inside any argument
-    # would corrupt it. Reject loudly so the model corrects immediately.
+    # the bridge command line is ';'-separated, so a ';' inside an argument
+    # that rides it (paths, launch args) would corrupt it. File CONTENT is
+    # exempt: it travels separately in payload.txt and the game runtime
+    # writes it verbatim.
     for key, value in args.items():
+        if key == "content":
+            continue
         if isinstance(value, str) and ";" in value:
             raise ValueError(
                 f"argument '{key}' must not contain ';' — pass plain paths "

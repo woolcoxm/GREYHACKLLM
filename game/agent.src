@@ -19,6 +19,7 @@
 // All bridge files live in /home/<you>/llm on your in-game machine.
 
 BRIDGE_DIR = home_dir + "/.greyllm"
+AGENT_VERSION = "6"
 STALL_TIMEOUT = 900
 MARKER = "GreyLLM-BRIDGE-READY"
 NL = char(10)

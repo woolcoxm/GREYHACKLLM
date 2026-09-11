@@ -1536,6 +1536,61 @@ def complete_request(transport, nonce, reply):
     log(f"replied ({len(reply)} chars, completion UNVERIFIED)")
 
 
+GAME_RUNTIME_PATH = "/bin/agent"
+
+
+def game_runtime_source():
+    """The current in-game runtime source shipped with the daemon."""
+    return (DAEMON_DIR.parent / "game" / "agent.src").read_text(
+        encoding="utf-8", errors="replace"
+    )
+
+
+def runtime_version(body):
+    m = re.search(r'AGENT_VERSION = "([^"]+)"', body or "")
+    return m.group(1) if m else "0"
+
+
+def ensure_game_runtime(transport, verbose=False):
+    """Keep /bin/agent in the game current WITHOUT any manual re-pasting.
+
+    The shipped game/agent.src carries AGENT_VERSION; if the installed copy
+    is older (or missing ops entirely), install the current source through
+    the hook. Takes effect the next time the user launches `agent`; a
+    running instance is untouched (in-memory)."""
+    source = game_runtime_source()
+    want = runtime_version(source)
+    try:
+        body = (transport._call(
+            {"op": "read", "path": GAME_RUNTIME_PATH}
+        ) or {}).get("content") or ""
+    except Exception:
+        return False
+    have = runtime_version(body)
+    if have == want and 'op == "build"' in body:
+        return False
+    # never swap the runtime mid-mission: the running serve loop may be
+    # reading command files right now
+    status = (transport.read("status.txt") or "").strip()
+    if status.startswith("busy"):
+        if verbose:
+            print(
+                f"[bridge] /bin/agent outdated (v{have} < v{want}) but a "
+                "mission is active — will install after it completes"
+            )
+        return False
+    transport._call({
+        "op": "write",
+        "path": GAME_RUNTIME_PATH,
+        "content": source,
+    })
+    print(
+        f"[bridge] installed game runtime v{want} into {GAME_RUNTIME_PATH} "
+        f"(was v{have}) — run `agent` once more to use it"
+    )
+    return True
+
+
 def watch(config, mock):
     if mock:
         print("[bridge] watch mode with MOCK llm (no real API calls)")
@@ -1553,20 +1608,9 @@ def watch(config, mock):
         die(f"cannot read bridge files: {exc}")
     if isinstance(transport, HookTransport):
         try:
-            runtime = transport._call({"op": "read", "path": "/bin/agent"})
-            body = runtime.get("content") or ""
-            missing = [
-                op for op in ('op == "build"', "nextNonce")
-                if op not in body
-            ]
-            if missing:
-                print(
-                    "[bridge] WARNING: /bin/agent in game is OUTDATED "
-                    f"(missing: {missing}). Re-paste the current "
-                    "game/agent.src into /bin/agent — tool calls will fail "
-                    "with 'unknown op' until then."
-                )
-        except Exception:  # noqa: BLE001 - advisory only
+            ensure_game_runtime(transport, verbose=True)
+        except Exception as exc:  # noqa: BLE001 - advisory only
+            print(f"[bridge] runtime self-install check failed: {exc}")
             pass
     print(
         "[bridge] watching game save. In game: agent <task>  |  "
@@ -1576,8 +1620,15 @@ def watch(config, mock):
     try:
         while True:
             try:
-                run_cycle(config, transport, mock)
+                handled = run_cycle(config, transport, mock)
                 game_down_since = None
+                if handled and isinstance(transport, HookTransport):
+                    # a mission just completed — install a deferred runtime
+                    # update now that the serve loop is idle
+                    try:
+                        ensure_game_runtime(transport)
+                    except Exception:  # noqa: BLE001 - opportunistic
+                        pass
             except ConnectionError as exc:
                 # the game closing must idle the daemon, never kill it —
                 # it picks up again the moment the game relaunches

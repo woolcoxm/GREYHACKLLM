@@ -413,8 +413,18 @@ Owned hosts, credentials and the frontier persist in `~/worm.state`
 resumes). Key flags: `-t=` hosts per cycle, `-r=` random public IPs per
 cycle when starved, `-u/-w/-rp=` credentials (all validated
 alphanumeric before anything fires), `-depth=` infection-tree depth
-(default 3; children get depth−1 and `-cycles=1`). Stolen credentials
-land in `~/Desktop/bankintel.txt`.
+(default 3; children get depth−1 and `-cycles=1`), `-stealth` to skip
+creating durable accounts (smaller footprint). Stolen credentials land
+in `~/Desktop/bankintel.txt`.
+
+**Opsec (v31).** Every attack writes to the victim's `/var/system.log`
+and only root can erase it — so the tool wipes that log the moment root
+is gained and again at finish (through every foothold), deletes exactly
+the ledger of files it dropped everywhere (child generations keep all
+working files in the landing dir and remove them at exit), wipes your
+own system log each cycle, and marks every host where root never landed
+as `EVIDENCE-LEFT` in the digest — that residual evidence is
+unremovable, and the digest is the honest accounting of it.
 
 > **CPU warning:** the game degrades hardware under sustained load. By
 > operator directive the epidemic is immortal (no runtime cap, no idle

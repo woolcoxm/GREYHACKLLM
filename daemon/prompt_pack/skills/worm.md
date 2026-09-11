@@ -42,6 +42,32 @@ synchronous launch returns. `-depth=` tunes the tree (default 3 under
 -auto). At depth 0 the child still runs `exploit -scan` to enumerate the
 victim's network (F|ip lines relayed up as NEWTARGETs).
 
+## Opsec — cleanup is mandatory, not optional (v31)
+
+Learned the expensive way: traced runs cost the player real money.
+Every attack writes entries into the victim's `/var/system.log`, and
+only ROOT can erase that file. The tool therefore:
+
+- wipes the victim log the MOMENT root is gained (mid-fire) and again
+  at finish — attempted through EVERY foothold, since the finishing
+  one may lack the rights;
+- deletes EXACTLY the ledger of files it created, also through every
+  foothold (no blind sweeps, no missed artifacts);
+- keeps ALL child-generation working files (log, digest, winners,
+  report, state, loot) inside the landing dir and removes them when
+  the bounded child run ends — the parent's ledger deletes them too;
+- wipes YOUR OWN `/var/system.log` once per epidemic cycle;
+- flags every host where root never landed as **EVIDENCE-LEFT** in the
+  report, the worm log, and the digest — that evidence is unremovable,
+  so the player sees exactly which hosts still name them.
+
+`-stealth` additionally skips creating the durable account everywhere
+(persistence traded for a smaller footprint — the account table entry
+is itself evidence that admins eventually clean anyway). Residual
+risk that CANNOT be engineered away: hosts attacked without ever
+gaining root keep your IP in their log until an admin cleans it. The
+EVIDENCE-LEFT digest is the honest accounting of that exposure.
+
 ## Driving the epidemic
 
 ```

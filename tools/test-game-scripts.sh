@@ -67,7 +67,9 @@ check "plague: assault reaches a verdict" "VERDICT OWNED" 1.2.3.4
 check "plague: sweep stops at root"       "SWEEP-STOP" 1.2.3.4
 check "plague: planner secures durable"   "[secure]" 1.2.3.4
 check "plague: verdict names the access"  "VERDICT OWNED root" 1.2.3.4
+check "plague: verdict reports wiped log" ", log wiped)" 1.2.3.4
 check "plague: list mode fires nothing"   "(listed)" -l 1.2.3.4
+check "plague: rootless runs flagged honestly" "EVIDENCE-LEFT" -l 1.2.3.4
 check "plague: local -L ladder"           "LSTATUS" -L
 check "plague: local -L verdict"          "=== exploit done ===" -L
 check "plague: epidemic self-heal guard"  "no ~/exploit binary" -cycles=1

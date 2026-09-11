@@ -1418,9 +1418,33 @@ def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
 # --- Request handling ---------------------------------------------------
 
 
+RESET_COMMANDS = ("/new", "/reset", "/clear")
+
+
+def clear_engagement(transport):
+    """Wipe everything that persists a mission: conversation history,
+    plan.txt and notes.txt. Used when the user starts a fresh engagement
+    (e.g. the current target turned out unhackable)."""
+    save_history([])
+    cleared = []
+    for name in ("plan.txt", "notes.txt"):
+        try:
+            transport.write(name, "")
+            cleared.append(name)
+        except Exception as exc:  # noqa: BLE001 - clear what we can
+            print(f"[bridge] could not clear {name}: {exc}")
+    print(f"[bridge] engagement context cleared ({', '.join(cleared) or 'history only'})")
+
+
 def handle_request(config, transport, prompt, mode, mock):
     if prompt == "PING" and mode == "chat":
         return "PONG — bridge is alive. Now give the agent a task."
+    if prompt.strip().lower() in RESET_COMMANDS:
+        clear_engagement(transport)
+        return (
+            "Context cleared — history, plan and notes are gone. "
+            "Send your new engagement."
+        )
 
     system_prompt = build_system_prompt()
     history = load_history()[-config["max_history"] :]

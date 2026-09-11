@@ -19,7 +19,7 @@
 // All bridge files live in /home/<you>/llm on your in-game machine.
 
 BRIDGE_DIR = home_dir + "/.greyllm"
-AGENT_VERSION = "6"
+AGENT_VERSION = "7"
 STALL_TIMEOUT = 900
 MARKER = "GreyLLM-BRIDGE-READY"
 NL = char(10)
@@ -28,6 +28,7 @@ usage = function()
 	print("GreyLLM agent - in-game AI harness")
 	print("usage: agent            interactive chat (recommended)")
 	print("       agent <task...>  one-shot mission")
+	print("       /new             clear context, start a fresh engagement")
 	print("       agent -t   test bridge")
 	print("       agent -w   keep watching current task")
 	print("       agent -r   show last answer")
@@ -506,7 +507,8 @@ chat = function(comp)
 	// interactive harness session: each message continues the same
 	// conversation (the daemon keeps history + plan/notes on disk)
 	print("[agent] interactive session. full tool access; I keep")
-	print("[agent] plan.txt/notes.txt across messages. 'exit' to quit.")
+	print("[agent] plan.txt/notes.txt across messages.")
+	print("[agent] type /new for a fresh engagement; 'exit' to quit.")
 	while true
 		line = user_input("you> ")
 		if line == null then

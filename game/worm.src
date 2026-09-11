@@ -502,7 +502,8 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	if guardCreds(user, pass, rootPass) == false then
 		return "skip"
 	end if
-	lr = shell.launch(globals.homeBase + "/exploit", ip + entryFlags + " -u=" + user + " -w=" + pass + " -g=" + rootPass)
+	depthArg = " -depth=" + globals.wormDepth
+	lr = shell.launch(globals.homeBase + "/exploit", ip + entryFlags + " -u=" + user + " -w=" + pass + " -g=" + rootPass + " -E=" + exfilPath + depthArg)
 	if lr != 1 then
 		wlog(mark + ": exploit launch failed: " + lr)
 		return "skip"
@@ -667,6 +668,7 @@ main = function(params)
 		end for
 	end if
 	globals.quietEntry = quietEntry
+	globals.wormDepth = depth
 	if gens == null or gens < 0 then
 		gens = 0
 	end if

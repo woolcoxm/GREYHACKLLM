@@ -1127,7 +1127,15 @@ def dispatch_tool(config, transport, name, args, tag):
             "resend your message.",
         )
 
-    deadline = time.time() + config["tool_timeout"]
+    # cheap filesystem ops answer instantly game-side; only launches/builds
+    # can legitimately run long (synchronous). A stalled serve loop must not
+    # cost 6 minutes per cheap op — that was the 'unbearable' delay.
+    cheap = name in (
+        "list_dir", "read_file", "write_file", "append_file",
+        "make_dir", "delete_file", "sysinfo",
+    )
+    timeout_s = 45 if cheap else config["tool_timeout"]
+    deadline = time.time() + timeout_s
     while time.time() < deadline:
         status = (transport.read("command_status.txt") or "").strip()
         if status == f"done {tag}":

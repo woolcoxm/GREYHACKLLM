@@ -43,11 +43,12 @@ public static class Patches
     [HarmonyPatch(typeof(GreyScriptHelperServer), "SendPrintToClient")]
     private static void Prefix_SendPrintToClient(byte[] zipOutput, bool replaceText, int windowPID)
     {
-        // prefix only — the game still displays the output normally
-        if (!Prints.TryGetValue(windowPID, out var buffer))
-        {
-            return;
-        }
+        // prefix only — the game still displays the output normally.
+        // Register lazily on first print: player terminals are not created
+        // through Computer.AddProcess, so waiting for registration misses
+        // them — capture any window that prints (incl. launched programs'
+        // runtime errors in the agent's terminal).
+        var buffer = Prints.GetOrAdd(windowPID, _ => new StringBuilder());
         try
         {
             var text = StringCompressor.Unzip(zipOutput);

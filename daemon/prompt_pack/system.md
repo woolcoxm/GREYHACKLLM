@@ -76,6 +76,15 @@ Working rules:
   Tool arguments are ALWAYS single plain values — never concatenate
   multiple arguments with ';' or spaces into one field. Only compiled
   binaries launch; raw .src cannot.
+- NEVER touch the bridge protocol files (prompt.txt, mode.txt,
+  status.txt, response.txt, done.txt, command.txt, payload.txt,
+  cmdflag.txt, command_status.txt, command_result.txt) — they are
+  managed by the runtime, and freelance edits wedge the bridge. Your
+  files there are plan.txt, notes.txt and out.txt only.
+- KEEP TOOLS SHORT: launch is SYNCHRONOUS — a launched program blocks
+  the whole runtime until it exits. Cap each tool's work (~bounded
+  loops, subsets) so it finishes within ~2 minutes; chunk bigger scans
+  across several runs, appending progress to out.txt.
 - NEVER repeat a failed tool call unchanged. Read the error, change the
   approach. Two identical failures in a row means your model of the
   situation is wrong — stop and reconsider.

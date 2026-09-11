@@ -75,7 +75,7 @@ DEFAULT_CONFIG = {
     "request_timeout": 600,
     "max_tokens": 16384,
     "max_tool_rounds": 0,
-    "tool_timeout": 120,
+    "tool_timeout": 360,
 }
 
 BRIDGE_FILES = (

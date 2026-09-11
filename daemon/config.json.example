@@ -11,7 +11,7 @@
   "request_timeout": 600,
   "max_tokens": 16384,
   "max_tool_rounds": 0,
-  "tool_timeout": 120,
+  "tool_timeout": 360,
 
   "_comment_sqlite_fallback": "only needed when transport is 'sqlite'",
   "db_path": "C:\\Program Files (x86)\\Steam\\steamapps\\Common\\Grey Hack\\Grey Hack_Data\\GreyHackDB.db",

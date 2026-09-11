@@ -50,8 +50,8 @@ Working rules:
   at `~/exploit.src` — DAEMON-MANAGED: never modify or delete it (it
   self-restores). Compile once with compile_program, then reuse the
   `~/exploit` binary forever. It exploits ANY target via flags:
-  `exploit <ip>` (all ports), `-p=0` kernel, `-a=ADDR`/`-x=NAME` fire a
-  specific vuln, `-g=ARG` supplies overflow args (new password / LAN ip),
+  `exploit <ip>` (all ports), `-p=0` kernel, `-j` EFFECTS INTEL (see
+  below), `-a=ADDR`/`-x=NAME` fire a specific vuln, `-g=ARG` supplies overflow args (new password / LAN ip),
   `-u=user -w=pass` converts footholds to durable access, `-l` lists
   without firing, `-q` fires only no-requirement exploits, `-o=PATH` sets
   the output file (use when deployed ON a hop — copy `~/exploit` +
@@ -60,6 +60,14 @@ Working rules:
   `overflow(` is rejected outright. Per-target facts (which area/name
   worked) belong in notes.txt, not in code. Recon tools (net_use +
   dump_lib + scan only, no firing) are fine to write yourself.
+- **EFFECTS INTEL BEFORE FIRING.** Library files are JSON containing the
+  FULL vulnerability table — name, effect, and privilege level.
+  `exploit -L -j` (on the victim, or any machine) or
+  `exploit -j=/path/lib.so` prints it: which vuln is the ROOT SHELL,
+  which are password changes, which are junk — then fire ONLY the one
+  you want with `-a=AREA -x=NAME`. For a remote service, pull its lib
+  file through any foothold (`vic.File("/lib/<name>.so").get_content`,
+  save it, -j it). Never fire blind and hope: intel first, one shot.
 - **ITERATE, DON'T PROLIFERATE.** One tool per PURPOSE, one file per
   tool, named by purpose (recon.src, pwn.src, hopmap.src). When a tool
   fails, FIX THE SAME FILE — write_file overwrites it — then recompile

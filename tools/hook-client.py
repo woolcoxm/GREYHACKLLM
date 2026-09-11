@@ -48,8 +48,13 @@ def main():
                 "timeout": 120,
             }
     else:
-        print(f"unknown op {op}")
-        sys.exit(1)
+        # pass any other op straight through (e.g. 'term'); extra CLI
+        # words after the op become string fields, never faked errors
+        req = {"op": op}
+        for extra in sys.argv[2:]:
+            if "=" in extra:
+                k, v = extra.split("=", 1)
+                req[k] = v
 
     started = time.time()
     result = call(req)

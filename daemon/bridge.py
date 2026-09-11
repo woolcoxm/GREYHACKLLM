@@ -74,6 +74,7 @@ DEFAULT_CONFIG = {
     "max_history": 6,
     "request_timeout": 600,
     "max_tokens": 16384,
+    "thinking_budget": 3000,
     "max_tool_rounds": 0,
     "tool_timeout": 360,
 }
@@ -870,6 +871,15 @@ def anthropic_call(config, api_key, system_prompt, messages, tools=None):
         "system": system_prompt,
         "messages": messages,
     }
+    budget = int(config.get("thinking_budget") or 0)
+    if budget > 0:
+        # cap deliberation per round: unbounded thinking is what makes
+        # rounds take minutes on complex missions (budget must be smaller
+        # than max_tokens)
+        body["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": min(budget, config["max_tokens"] - 512),
+        }
     if tools:
         body["tools"] = tools
     return http_json(
@@ -1184,7 +1194,12 @@ def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
         state = mission_state(transport)
         if state:
             system_this = system_prompt + "\n\n---\n\n" + state
+        t0 = time.time()
         data = llm_fn(system_this, messages, with_tools=True)
+        print(
+            f"[bridge] round {round_no} in {time.time() - t0:.1f}s "
+            f"({len(messages)} messages)"
+        )
         blocks = data.get("content", [])
         messages.append({"role": "assistant", "content": blocks})
         tool_uses = [b for b in blocks if b.get("type") == "tool_use"]

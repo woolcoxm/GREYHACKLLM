@@ -10,6 +10,7 @@
   "max_history": 6,
   "request_timeout": 600,
   "max_tokens": 16384,
+  "thinking_budget": 3000,
   "max_tool_rounds": 0,
   "tool_timeout": 360,
 

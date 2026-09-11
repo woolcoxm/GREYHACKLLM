@@ -346,6 +346,7 @@ caught and fed back without wasting an in-game round trip.
 | `base_url` | z.ai endpoint | Any Anthropic-compatible endpoint |
 | `model` | `"glm-5.3"` | Model name |
 | `api_key` | — | Your key (or `daemon/api_key.txt` / `ZAI_API_KEY` env) |
+| `thinking_budget` | `3000` | Per-round thinking token cap; smaller = faster rounds, `0` = unbounded (can take minutes per round) |
 | `max_tokens` | `16384` | Output budget per round; thinking models need headroom |
 | `max_tool_rounds` | `0` | Tool rounds per message; `0` = unlimited (default) — loop detection is the safety net |
 | `tool_timeout` | `120` | Seconds to wait for the in-game runtime before failing a tool |

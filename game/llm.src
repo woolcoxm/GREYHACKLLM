@@ -19,7 +19,8 @@ MARKER = "GreyLLM-BRIDGE-READY"
 
 usage = function()
 	print("GreyLLM - local AI bridge")
-	print("usage: llm <prompt...>")
+	print("usage: llm            interactive chat")
+	print("       llm <prompt...>")
 	print("       llm -t   test bridge")
 	print("       llm -r   show last reply")
 	print("       llm -w   keep waiting")
@@ -154,6 +155,29 @@ ask = function(comp, params)
 	return sendPrompt(comp, prompt, true)
 end function
 
+chat = function(comp)
+	// interactive chat session: each message continues the same
+	// conversation (the daemon keeps history on disk)
+	print("[llm] interactive chat. 'exit' to quit.")
+	print("[llm] tip: run 'agent' with no args for the tool-using harness")
+	while true
+		line = user_input("you> ")
+		if line == null then
+			break
+		end if
+		line = line.trim
+		if line == "" then
+			continue
+		end if
+		if line == "exit" or line == "quit" or line == "/exit" then
+			break
+		end if
+		sendPrompt(comp, line, true)
+	end while
+	print("[llm] session closed")
+	return null
+end function
+
 runTest = function(comp)
 	folder = getOrCreateFolder(comp, BRIDGE_DIR)
 	if folder == null then
@@ -231,16 +255,13 @@ end function
 main = function(params)
 	comp = getComp()
 	if params == null then
-		usage()
-		return null
+		return chat(comp)
 	end if
 	if params.len == 0 then
-		usage()
-		return null
+		return chat(comp)
 	end if
 	if params.len == 1 and params[0] == "" then
-		usage()
-		return null
+		return chat(comp)
 	end if
 	first = params[0]
 	if first == "-t" then

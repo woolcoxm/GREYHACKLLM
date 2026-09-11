@@ -56,7 +56,7 @@ checkl() {
     fi
 }
 
-check "agent: no args shows usage"       "usage: agent" ""
+check "agent: no args opens chat session" "interactive session" ""
 check "agent: -t bridge test"            "bridge files live in" -t
 check "agent: -t times out gracefully"   "no answer within" -t
 check "agent: -r no answer yet"          "no answer yet" -r
@@ -64,7 +64,7 @@ check "agent: -s no answer yet"          "no answer yet" -s foo
 check "agent: task sends joined prompt"  "task sent: hello world task" hello world task
 check "agent: task enters serve loop"    "timed out waiting" hello
 
-checkl "llm: no args shows usage"        "usage: llm" ""
+checkl "llm: no args opens chat session" "interactive chat" ""
 checkl "llm: -t bridge test"             "testing bridge" -t
 checkl "llm: prompt reaches wait"        "timeout: daemon did not answer" hello
 checkl "llm: -r no reply yet"            "no reply yet" -r

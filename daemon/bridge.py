@@ -215,6 +215,21 @@ AGENT_TOOLS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "ask_user",
+        "description": "You are BLOCKED on something only the user can fix: "
+        "required software/library not installed and not obtainable "
+        "in-game, missing critical target details, or an important "
+        "decision. Call this ONCE with a concise question, then STOP: make "
+        "no more tool calls this turn — your final message must ask the "
+        "user and say exactly how to fix it. The mission resumes with "
+        "full context when the user replies in the chat.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"question": {"type": "string"}},
+            "required": ["question"],
+        },
+    },
 ]
 
 MOCK_CHAT_REPLY = """Here is a tool that greets every user folder.
@@ -909,6 +924,19 @@ def dispatch_tool(config, transport, name, args, tag):
     if name == "api_doc":
         # daemon-side lookup, no in-game round-trip needed
         return api_doc_lookup((args or {}).get("query", ""))
+    if name == "ask_user":
+        # daemon-side: turn-ending blocker question, no in-game round-trip
+        q = (args or {}).get("question", "").strip()
+        log(f"ask_user: {q[:200]}")
+        return True, (
+            "Question delivered: \"" + q + "\"\n"
+            "STOP all work now — do NOT call any more tools this turn. Your "
+            "final message must be this question plus exactly what the user "
+            "should do (e.g. buy/install the missing library in game, or "
+            "provide the missing detail) and tell them to answer in the "
+            "chat. plan.txt and notes.txt are saved; the mission continues "
+            "automatically when the user replies."
+        )
     line, payload = tool_command(name, args, tag)
     path = str(args.get("path", ""))
     is_program = path.endswith(".src") or path.startswith("/bin/")

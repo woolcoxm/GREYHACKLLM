@@ -111,9 +111,10 @@ The daemon window logs every request and tool call with timestamps.
 `sysinfo`, `list_dir`, `read_file`, `write_file`, `append_file`,
 `make_dir`, `delete_file`, `compile_program` (source → runnable binary),
 `run_program` (launches binaries, waits ~10s and returns whatever the
-program appended to the bridge `out.txt`), and `api_doc` (searches a
+program appended to the bridge `out.txt`), `api_doc` (searches a
 complete generated GreyScript API reference — 316 entries from the game's
-own metadata — so the model never has to guess an API).
+own metadata — so the model never has to guess an API), and `ask_user`
+(blocker questions: stops work and asks you).
 
 The agent runs a mission doctrine: it writes a plan to the bridge
 `plan.txt`, records every learned fact (IPs, ports, credentials,
@@ -121,6 +122,16 @@ vulnerabilities) in `notes.txt`, and both are re-injected into its context
 every round — persistent memory across a whole task. Give it goals, not
 instructions: "root the bank", "map the local network", "build and test a
 port scanner". Up to 40 tool rounds per mission.
+
+Run `agent` with no arguments for an interactive harness session (like a
+coding-agent chat): you type, it works and replies, you type again — the
+conversation, plan, and notes persist across messages. `llm` with no
+arguments opens the same kind of session without tools (plain chat).
+
+When the agent hits a blocker only you can fix (required library not
+installed, missing target details), it calls `ask_user`: it stops working,
+asks you exactly what it needs, and resumes with full context when you
+answer in the chat.
 
 Every `.src` the model writes is syntax-checked with the real GreyScript
 parser before it reaches the game.

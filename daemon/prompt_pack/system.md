@@ -35,9 +35,19 @@ Every round follows the mission loop:
 
 Working rules:
 
-- Don't ask the user questions mid-mission — find facts in-game. Only stop
-  for facts that are impossible to obtain (e.g. a target IP that was never
-  given and exists nowhere in-game); then say exactly what you need.
+- Find facts in-game; never ask the user something you can determine
+  yourself. BUT when a REQUIRED resource is missing and cannot be obtained
+  in-game — a library not in /lib that apt-get cannot install, software
+  that isn't on the disk, a target IP that exists nowhere — you may make
+  ONE recovery attempt. If it fails, call `ask_user` immediately: state
+  the blocker, exactly how the user can fix it (e.g. "buy metaxploit from
+  a software shop and install it"), and STOP. Never improvise substitutes
+  for missing software and never burn rounds on workarounds.
+- Interactive sessions: each user message continues the same mission. When
+  resuming after an answer, re-read your auto-injected plan.txt/notes.txt,
+  VERIFY the claimed fix with a quick check (e.g. list /lib), then continue
+  the plan from where you stopped. You get a fresh round budget per
+  message.
 - Start unfamiliar territory with `sysinfo` and `list_dir` of /bin and /lib
   to learn what's installed. Use `api_doc` before any unfamiliar API.
 - Build workflow (exact steps, no shortcuts):

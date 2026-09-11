@@ -25,7 +25,8 @@ NL = char(10)
 
 usage = function()
 	print("GreyLLM agent - in-game AI harness")
-	print("usage: agent <task...>")
+	print("usage: agent            interactive chat (recommended)")
+	print("       agent <task...>  one-shot mission")
 	print("       agent -t   test bridge")
 	print("       agent -w   keep watching current task")
 	print("       agent -r   show last answer")
@@ -322,8 +323,7 @@ serve = function(comp)
 		done = comp.File(BRIDGE_DIR + "/done.txt").get_content
 		if done == doneTarget then
 			print(comp.File(BRIDGE_DIR + "/response.txt").get_content)
-			print("[agent] done. save the code with: agent -s <name>")
-			return null
+			return "done"
 		end if
 		cs = comp.File(BRIDGE_DIR + "/cmdflag.txt").get_content
 		if cs == cmdTarget then
@@ -344,8 +344,7 @@ serve = function(comp)
 		wait(1)
 		stalled = stalled + 1
 	end while
-	print("[agent] timed out waiting. run: agent -w")
-	return null
+	return "timeout"
 end function
 
 nextNonce = function(comp)
@@ -380,7 +379,7 @@ initDaemonFiles = function(comp)
 	return null
 end function
 
-startTask = function(comp, prompt)
+startTask = function(comp, prompt, interactive)
 	folder = getOrCreateFolder(comp, BRIDGE_DIR)
 	if folder == null then
 		return null
@@ -428,8 +427,37 @@ startTask = function(comp, prompt)
 	promptF.set_content(prompt)
 	modeF.set_content("agent")
 	statusF.set_content("busy " + nonce)
-	print("[agent] task sent: " + prompt)
-	print("[agent] serving tools now; leave this terminal open")
+	if interactive != true then
+		print("[agent] task sent: " + prompt)
+		print("[agent] serving tools now; leave this terminal open")
+	end if
+	return null
+end function
+
+chat = function(comp)
+	// interactive harness session: each message continues the same
+	// conversation (the daemon keeps history + plan/notes on disk)
+	print("[agent] interactive session. full tool access; I keep")
+	print("[agent] plan.txt/notes.txt across messages. 'exit' to quit.")
+	while true
+		line = user_input("you> ")
+		if line == null then
+			break
+		end if
+		line = line.trim
+		if line == "" then
+			continue
+		end if
+		if line == "exit" or line == "quit" or line == "/exit" then
+			break
+		end if
+		startTask(comp, line, true)
+		r = serve(comp)
+		if r == "timeout" then
+			print("[agent] no reply (daemon down or slow). run: agent -w to keep waiting")
+		end if
+	end while
+	print("[agent] session closed")
 	return null
 end function
 
@@ -526,16 +554,13 @@ end function
 main = function(params)
 	comp = getComp()
 	if params == null then
-		usage()
-		return null
+		return chat(comp)
 	end if
 	if params.len == 0 then
-		usage()
-		return null
+		return chat(comp)
 	end if
 	if params.len == 1 and params[0] == "" then
-		usage()
-		return null
+		return chat(comp)
 	end if
 	first = params[0]
 	if first == "-t" then
@@ -567,8 +592,14 @@ main = function(params)
 		return saveLast(comp, params[1])
 	end if
 	prompt = params.join(" ")
-	startTask(comp, prompt)
-	return serve(comp)
+	startTask(comp, prompt, false)
+	r = serve(comp)
+	if r == "done" then
+		print("[agent] done. save the code with: agent -s <name>")
+	else
+		print("[agent] timed out waiting. run: agent -w")
+	end if
+	return null
 end function
 
 main(params)

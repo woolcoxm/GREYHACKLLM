@@ -1,5 +1,5 @@
 // worm — aggressive staged harvesting worm (GreyLLM standard)
-// WORM_VERSION = "3" (daemon auto-installs/updates this file)
+// WORM_VERSION = "4" (daemon auto-installs/updates this file)
 //
 // Per host: break in with the standard ~/exploit tool, ESCALATE LOCALLY
 // to root (victim-side exploit -L, password-change attempts, root
@@ -37,6 +37,26 @@
 // bounded, and state is saved after EVERY host so any death resumes.
 
 NL = char(10)
+LOGPATH = home_dir + "/worm.log"
+
+wlog = function(line)
+	// every worm line goes to the terminal AND ~/worm.log — inspect
+	// anytime with read_file even when the launching terminal is gone
+	print(line)
+	lf = globals.comp0.File(LOGPATH)
+	if lf == null then
+		globals.comp0.touch(home_dir, "worm.log")
+		lf = globals.comp0.File(LOGPATH)
+	end if
+	if lf != null then
+		base = lf.get_content
+		if base == null then
+			base = ""
+		end if
+		lf.set_content(base + line + NL)
+	end if
+	return null
+end function
 
 containsStr = function(hay, needle)
 	if hay == null then
@@ -368,7 +388,7 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	if expBin == null then
 		b = shell.build(home_dir + "/exploit.src", home_dir)
 		if b != "" then
-			print(mark + ": no ~/exploit and build failed: " + b)
+			wlog(mark + ": no ~/exploit and build failed: " + b)
 			return "skip"
 		end if
 	end if
@@ -381,24 +401,24 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	end if
 	lr = shell.launch(home_dir + "/exploit", ip + " -q -u=" + user + " -w=" + pass)
 	if lr != 1 then
-		print(mark + ": exploit launch failed: " + lr)
+		wlog(mark + ": exploit launch failed: " + lr)
 		return "skip"
 	end if
 	report = readFileOr(comp, outPath, "")
 	if containsStr(report, "FOOTHOLD") == false and containsStr(report, "SUCCESS") == false then
-		print(mark + ": no entry (requirements unmet or nothing there)")
+		wlog(mark + ": no entry (requirements unmet or nothing there)")
 		return "done"
 	end if
 
 	// 2. enter with the durable user
 	sh = shell.connect_service(ip, 22, user, pass)
 	if typeof(sh) != "shell" then
-		print(mark + ": durable login refused (" + sh + ")")
+		wlog(mark + ": durable login refused (" + sh + ")")
 		return "done"
 	end if
 	vic = sh.host_computer
 	if vic == null then
-		print(mark + ": shell without host_computer")
+		wlog(mark + ": shell without host_computer")
 		return "done"
 	end if
 	vhome = "/home/" + user
@@ -418,7 +438,7 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	if vic.File("/lib/metaxploit.so") == null then
 		sc = sh.scp("/lib/metaxploit.so", vhome + "/", shell)
 		if typeof(sc) == "string" then
-			print(mark + ": metaxploit scp failed: " + sc)
+			wlog(mark + ": metaxploit scp failed: " + sc)
 		else
 			drops.push("metaxploit.so")
 		end if
@@ -449,7 +469,7 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	if rooted then
 		badge = " [ROOT]"
 	end if
-	print(mark + badge + ": harvested " + got + " credential files")
+	wlog(mark + badge + ": harvested " + got + " credential files")
 
 	// 6. spread — scan the victim's network from inside it
 	newIps = []
@@ -487,7 +507,7 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	// 7. stealth — remove every artifact, wipe the log
 	cleanDrops(vic, vhome, drops)
 	clearLog(vic)
-	print(mark + ": cleaned " + drops.len + " artifacts, log wiped")
+	wlog(mark + ": cleaned " + drops.len + " artifacts, log wiped")
 	return ["owned", newIps]
 end function
 
@@ -526,6 +546,7 @@ end function
 
 main = function(params)
 	comp = get_shell.host_computer
+	globals.comp0 = comp
 	gens = 0
 	maxT = 3
 	rndN = 2
@@ -630,7 +651,7 @@ main = function(params)
 	rndCounter = 1
 	cycle = 0
 	infected = 0
-	print("worm: EPIDEMIC MODE — infecting until killed or frontier logic ends (state: " + statePath + ")")
+	wlog("worm: EPIDEMIC MODE — infecting until killed or frontier logic ends (state: " + statePath + ")")
 	while true
 		cycle = cycle + 1
 		if gens > 0 and cycle > gens then
@@ -669,14 +690,14 @@ main = function(params)
 			// state saved after EVERY host: any death resumes cleanly
 			stateSave(comp, statePath, frontier, owned, done)
 		end while
-		print("worm: cycle " + cycle + " — infected total " + infected + ", frontier " + frontier.len + ", owned " + owned.len + " (exfil: " + exfilPath + ")")
+		wlog("worm: cycle " + cycle + " — infected total " + infected + ", frontier " + frontier.len + ", owned " + owned.len + " (exfil: " + exfilPath + ")")
 		// pacing: let the game breathe between cycles
 		wait(2)
 	end while
 	if autoInstall then
 		installAutorun(comp)
 	end if
-	print("worm: run complete. exfil: " + exfilPath + " — rerun to keep spreading")
+	wlog("worm: run complete. exfil: " + exfilPath + " — rerun to keep spreading")
 	return null
 end function
 

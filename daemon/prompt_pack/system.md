@@ -60,14 +60,18 @@ Working rules:
   `overflow(` is rejected outright. Per-target facts (which area/name
   worked) belong in notes.txt, not in code. Recon tools (net_use +
   dump_lib + scan only, no firing) are fine to write yourself.
-- **EFFECTS INTEL BEFORE FIRING.** Library files are JSON containing the
-  FULL vulnerability table — name, effect, and privilege level.
-  `exploit -L -j` (on the victim, or any machine) or
-  `exploit -j=/path/lib.so` prints it: which vuln is the ROOT SHELL,
-  which are password changes, which are junk — then fire ONLY the one
-  you want with `-a=AREA -x=NAME`. For a remote service, pull its lib
-  file through any foothold (`vic.File("/lib/<name>.so").get_content`,
-  save it, -j it). Never fire blind and hope: intel first, one shot.
+- **EFFECTS INTEL BEFORE FIRING.** The `lib_intel` tool reads a library
+  file THROUGH the daemon (in-game scripts cannot — get_content refuses
+  binary files) and prints every vulnerability's effect, privilege,
+  requirements and metaxploit gate: which one is the ROOT SHELL, which
+  are password changes, which are junk. Your own /lib: lib_intel any
+  path. A TARGET's service library: gain any foothold, copy the lib
+  file to your home (fileobject.copy preserves content), then
+  lib_intel the copy. Then fire ONLY the chosen vuln:
+  `exploit <ip> -a=AREA -x=NAME` (+ -g for password changes). Vuln sets
+  are fixed per library VERSION — record tables in notes.txt as durable
+  world intel. First contact with an unknown version: fire selectively
+  and record what each returned. Never fire blind and hope.
 - **ITERATE, DON'T PROLIFERATE.** One tool per PURPOSE, one file per
   tool, named by purpose (recon.src, pwn.src, hopmap.src). When a tool
   fails, FIX THE SAME FILE — write_file overwrites it — then recompile

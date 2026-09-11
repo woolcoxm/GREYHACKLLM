@@ -239,6 +239,23 @@ AGENT_TOOLS = [
         },
     },
     {
+        "name": "lib_intel",
+        "description": "Effects intel for a library file: reads the file "
+        "raw through the hook and parses its vulnerability JSON — every "
+        "exploit's effect and privilege (ROOT SHELL / user shell / "
+        "password change / computer / folder), requirements, and the "
+        "metaxploit version gate. In-game scripts CANNOT read library "
+        "files (binary), so this is the only effects-intel path. Works "
+        "on your machine's /lib; for a TARGET's service library, gain "
+        "any foothold, copy the lib file home (fileobject.copy), then "
+        "lib_intel the copy.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    },
+    {
         "name": "ask_user",
         "description": "You are BLOCKED on something only the user can fix: "
         "required software/library not installed and not obtainable "
@@ -346,6 +363,102 @@ def skill_index():
                 break
         entries.append((p.stem, first))
     return entries
+
+
+HACK_RESULTS = {
+    0: "SHELL",
+    1: "RANDOM FOLDER",
+    2: "PASSWORD CHANGE",
+    3: "COMPUTER",
+    4: "FIREWALL DISABLE",
+    5: "SETTINGS OVERRIDE",
+    6: "TRAFFIC LIGHT",
+}
+REQUIRED_CODES = {
+    0: "library version",
+    1: "N registered users",
+    2: "active user",
+    3: "root active user",
+    4: "local network connection",
+    5: "port forward",
+    6: "computers on gateway",
+    7: "guest active user",
+    8: "path exists",
+}
+
+
+def lib_intel(transport, path):
+    """Effects intel for a library FILE (daemon-side): raw-read the file
+    through the hook and parse its vulnerability JSON. In-game scripts
+    cannot read library files at all (get_content refuses binary files),
+    so this is the only effects-intel path. Works on any file on the
+    player's machine — including target libraries copied home through a
+    foothold (f.copy preserves the content)."""
+    fetch = getattr(transport, "_call", None)
+    if fetch is None:
+        return False, (
+            "lib_intel needs the hook transport (transport 'hook' in "
+            "config.json)"
+        )
+    try:
+        resp = fetch({"op": "read", "path": path}) or {}
+    except Exception as exc:  # noqa: BLE001
+        return False, f"lib_intel: read failed: {exc}"
+    content = resp.get("content")
+    if content is None or not content.lstrip().startswith("{"):
+        return False, (
+            f"lib_intel: {path} is not readable library data (in-game "
+            "get_content also refuses binaries). For a TARGET's service "
+            "library: gain any foothold, copy the lib file to your home "
+            "(fileobject.copy), then lib_intel the copy."
+        )
+    try:
+        data = json.loads(content)
+        zones = data["listaZonaMem"]
+    except Exception:  # noqa: BLE001
+        return False, f"lib_intel: {path} is not library JSON"
+
+    lines = [f"== effects intel: {path} =="]
+    best = []
+    for area, zone in zones.items():
+        for v in zone.get("vulnerabs", []):
+            name = v.get("unsecValue")
+            hr = v.get("helperHackResult") or {}
+            eff = HACK_RESULTS.get(hr.get("hackResult"), "?")
+            usr = hr.get("user") or "?"
+            if eff == "SHELL":
+                rank = (
+                    "ROOT SHELL ***" if usr == "root"
+                    else "user shell" if usr == "normal_user"
+                    else "guest shell"
+                )
+            elif eff == "PASSWORD CHANGE":
+                rank = "password change (fire with -g=newpass)"
+            elif eff == "COMPUTER":
+                rank = f"computer object (as {usr})"
+            else:
+                rank = eff.lower()
+            reqs = [
+                REQUIRED_CODES.get(r, str(r))
+                for r in v.get("requiredActions", [])
+            ]
+            mv = (v.get("metaxploitVersion") or {}).get("version")
+            gate = ".".join(str(x) for x in mv) if mv else "?"
+            line = f"{area} / {name} -> {rank}"
+            if reqs:
+                line += f" [requires: {', '.join(reqs)}]"
+            line += f" [metaxploit > {gate}]"
+            lines.append(line)
+            if "ROOT SHELL" in rank and not reqs:
+                best.append(f"{area} / {name}")
+    if best:
+        lines.append(
+            "best no-requirement root shells: "
+            + "; ".join(f"-a={a} -x={n}" for a, n in
+                        (b.split(" / ") for b in best))
+        )
+    lines.append("fire chosen: exploit <ip> -a=AREA -x=NAME (+ -g if password)")
+    return True, "\n".join(lines)
 
 
 def load_skill(name):
@@ -1052,6 +1165,10 @@ def dispatch_tool(config, transport, name, args, tag):
     if name == "api_doc":
         # daemon-side lookup, no in-game round-trip needed
         return api_doc_lookup((args or {}).get("query", ""))
+    if name == "lib_intel":
+        # daemon-side: raw row read + JSON parse (in-game reads refuse
+        # binary library files)
+        return lib_intel(transport, (args or {}).get("path", ""))
     if name == "load_skill":
         # daemon-side playbook load, no in-game round-trip
         return load_skill((args or {}).get("name", ""))

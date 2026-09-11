@@ -1,5 +1,5 @@
 // worm — aggressive staged harvesting worm (GreyLLM standard)
-// WORM_VERSION = "5" (daemon auto-installs/updates this file)
+// WORM_VERSION = "7" (daemon auto-installs/updates this file)
 //
 // Per host: break in with the standard ~/exploit tool, ESCALATE LOCALLY
 // to root (victim-side exploit -L, password-change attempts, root
@@ -9,11 +9,16 @@
 // still harvested with the durable user and the infection moves on.
 //
 // usage (from your home machine):
-//   worm [ip ...] [flags]      THE EPIDEMIC — runs continuously until
-//                              killed: infect -> harvest -> scan ->
-//                              infect, breadth-first, forever. Random
-//                              public IPs keep the frontier alive when
-//                              local networks are picked clean.
+//   worm [ip ...] [flags]      THE EPIDEMIC — infect -> harvest ->
+//                              scan -> infect, breadth-first. BOUNDED BY
+//                              DESIGN for CPU wear: every run exits after
+//                              -max minutes OR -idle empty cycles (the
+//                              game degrades hardware under sustained
+//                              process load — one CPU was lost to an
+//                              infinite variant; never run unbounded on
+//                              a machine you care about). Rerun (or let
+//                              the agent loop runs) to continue the
+//                              epidemic; state resumes.
 //     -g=N   cap on infection cycles this run (default 0 = INFINITE)
 //     -t=N   hosts per cycle                (default 3, cap 10)
 //     -r=N   random public IPs per cycle    (default 2, cap 8)
@@ -569,6 +574,8 @@ main = function(params)
 	maxT = 3
 	rndN = 2
 	autoInstall = false
+	maxMin = 10
+	idleMax = 3
 	exfilPath = home_dir + "/Desktop/bankintel.txt"
 	statePath = home_dir + "/worm.state"
 	user = "worm"
@@ -583,6 +590,10 @@ main = function(params)
 				scanOnly = true
 			else if p == "-auto" then
 				autoInstall = true
+			else if p.indexOf("-max=") == 0 then
+				maxMin = val(p[5:])
+			else if p.indexOf("-idle=") == 0 then
+				idleMax = val(p[5:])
 			else if p.indexOf("-g=") == 0 then
 				gens = val(p[3:])
 			else if p.indexOf("-t=") == 0 then
@@ -677,21 +688,42 @@ main = function(params)
 	rndCounter = 1
 	cycle = 0
 	infected = 0
-	wlog("worm: EPIDEMIC MODE — infecting until killed or frontier logic ends (state: " + statePath + ")")
+	idleRun = 0
+	startT = floor(time())
+	if maxMin == null or maxMin < 1 then
+		maxMin = 10
+	end if
+	if idleMax == null or idleMax < 1 then
+		idleMax = 3
+	end if
+	wlog("worm: EPIDEMIC (bounded — max " + maxMin + " min, exits after " + idleMax + " idle cycles; state: " + statePath + ")")
 	while true
 		cycle = cycle + 1
 		if gens > 0 and cycle > gens then
+			wlog("worm: cycle cap reached")
 			break
 		end if
-		// keep the frontier alive: fresh random publics every cycle
-		for rI in range(1, rndN)
-			rip = rndPublicIp(rndCounter + cycle * 31)
-			rndCounter = rndCounter + 1
-			if knownIp(frontier, owned, done, rip) == false and selfGuard(rip) == false then
-				frontier.push(rip)
-			end if
-		end for
+		elapsed = floor(time()) - startT
+		if elapsed > maxMin * 60 then
+			wlog("worm: runtime cap (" + maxMin + " min) — exiting to protect the CPU; rerun to continue")
+			break
+		end if
+		if idleRun >= idleMax then
+			wlog("worm: " + idleMax + " idle cycles — going dormant; rerun to probe again")
+			break
+		end if
+		// random publics only when starved — probing costs CPU too
+		if frontier.len < 1 then
+			for rI in range(1, rndN)
+				rip = rndPublicIp(rndCounter + cycle * 31)
+				rndCounter = rndCounter + 1
+				if knownIp(frontier, owned, done, rip) == false and selfGuard(rip) == false then
+					frontier.push(rip)
+				end if
+			end for
+		end if
 		worked = 0
+		gainedThisCycle = 0
 		while worked < maxT and frontier.len > 0
 			ip = frontier[0]
 			frontier.remove(0)
@@ -704,6 +736,7 @@ main = function(params)
 			if typeof(res) == "list" then
 				newIps = res[1]
 				owned.push([ip, user, pass])
+				gainedThisCycle = gainedThisCycle + 1
 				for nip in newIps
 					if knownIp(frontier, owned, done, nip) == false and is_valid_ip(nip) == 1 and selfGuard(nip) == false then
 						frontier.push(nip)
@@ -716,9 +749,14 @@ main = function(params)
 			// state saved after EVERY host: any death resumes cleanly
 			stateSave(comp, statePath, frontier, owned, done)
 		end while
-		wlog("worm: cycle " + cycle + " — infected total " + infected + ", frontier " + frontier.len + ", owned " + owned.len + " (exfil: " + exfilPath + ")")
-		// pacing: let the game breathe between cycles
-		wait(2)
+		if gainedThisCycle > 0 then
+			idleRun = 0
+		else
+			idleRun = idleRun + 1
+		end if
+		wlog("worm: cycle " + cycle + " — owned total " + owned.len + ", frontier " + frontier.len + " (exfil: " + exfilPath + ")")
+		// pacing: CPU wear is real — breathe between cycles
+		wait(5)
 	end while
 	if autoInstall then
 		installAutorun(comp)

@@ -126,6 +126,13 @@ Working rules:
   cmdflag.txt, command_status.txt, command_result.txt) — they are
   managed by the runtime, and freelance edits wedge the bridge. Your
   files there are plan.txt, notes.txt and out.txt only.
+- CPU WEAR IS REAL. The game degrades hardware under sustained process
+  load — a processor was lost to an unbounded loop. Never run infinite
+  loops on the player's machine; long jobs need a runtime cap and
+  idle-exit. Sustained heavy work belongs on a rented/throwaway machine.
+- PING BEFORE ATTACKING. get_shell.ping(ip) is cheap (1 alive / 0 dead,
+  firewalls do not block it); launching tools at dead addresses is pure
+  CPU burn. Probe first, attack only live hosts.
 - KEEP TOOLS SHORT: launch is SYNCHRONOUS — a launched program blocks
   the whole runtime until it exits. Cap each tool's work (~bounded
   loops, subsets) so it finishes within ~2 minutes; chunk bigger scans

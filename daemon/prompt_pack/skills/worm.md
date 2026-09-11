@@ -46,6 +46,16 @@ forever. When launching via run_program, ALWAYS pass a bounded -g=
 (e.g. -g=3) and re-invoke for more; reserve raw infinite runs for a
 terminal the player opens directly (or -auto autorun at login).
 
+## CPU WEAR — the hard lesson
+
+The game DEGRADES hardware under sustained process load: an infinite
+worm variant ran for hours of game-time on the player's machine and the
+processor DIED. Rules: never run unbounded loops on a machine that
+matters; the worm self-caps (default: 10 min runtime, exits after 3
+idle cycles, probes randoms only when starved, 5s pacing); drive the
+epidemic with repeated bounded runs (`-g=`/`-max=`); heavy sustained
+work belongs on a rented/throwaway machine, never home.
+
 ## Constraints (verified)
 
 - Binary files (metaxploit.so) move between machines ONLY via

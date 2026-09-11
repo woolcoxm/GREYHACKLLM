@@ -19,7 +19,7 @@
 // All bridge files live in /home/<you>/llm on your in-game machine.
 
 BRIDGE_DIR = home_dir + "/.greyllm"
-AGENT_VERSION = "7"
+AGENT_VERSION = "8"
 STALL_TIMEOUT = 900
 MARKER = "GreyLLM-BRIDGE-READY"
 NL = char(10)
@@ -436,7 +436,7 @@ end function
 initDaemonFiles = function(comp)
 	// daemon-owned files need distinct one-time content so each sits on
 	// its own row (touched-empty files would all share the "" row)
-	pairs = [["response.txt", "r0"], ["done.txt", "d0"], ["command.txt", "c0"], ["payload.txt", "p0"], ["cmdflag.txt", "f0"], ["command_status.txt", "t0"], ["command_result.txt", "u0"], ["thinking.txt", "k0"]]
+	pairs = [["response.txt", "r0"], ["done.txt", "d0"], ["command.txt", "c0"], ["payload.txt", "p0"], ["cmdflag.txt", "f0"], ["command_status.txt", "t0"], ["command_result.txt", "u0"], ["thinking.txt", "k0"], ["cancel.txt", "x0"]]
 	for pair in pairs
 		f = getOrCreateFile(comp, BRIDGE_DIR + "/" + pair[0])
 		if f != null then
@@ -496,6 +496,24 @@ startTask = function(comp, prompt, interactive)
 	promptF.set_content(prompt)
 	modeF.set_content("agent")
 	statusF.set_content("busy " + nonce)
+	// /new from ANY terminal (even while another mission is running in a
+	// different terminal): raise the cancel flag so the daemon aborts the
+	// active mission, and blank the mission files so nothing survives
+	pl = prompt.trim.lower
+	if pl == "/new" or pl == "/reset" or pl == "/clear" then
+		cancelF = getOrCreateFile(comp, BRIDGE_DIR + "/cancel.txt")
+		if cancelF != null then
+			cancelF.set_content("cancel " + nonce)
+		end if
+		planF = comp.File(BRIDGE_DIR + "/plan.txt")
+		if planF != null then
+			planF.set_content(" ")
+		end if
+		notesF = comp.File(BRIDGE_DIR + "/notes.txt")
+		if notesF != null then
+			notesF.set_content(" ")
+		end if
+	end if
 	if interactive != true then
 		print("[agent] task sent: " + prompt)
 		print("[agent] serving tools now; leave this terminal open")

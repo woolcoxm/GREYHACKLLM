@@ -91,6 +91,7 @@ BRIDGE_FILES = (
     "command_status.txt",   # game-owned ("done/error <nonce>")
     "command_result.txt",   # game-owned
     "thinking.txt",  # daemon-owned status stream, printed in game live
+    "cancel.txt",   # shared control flag: any terminal can abort a mission
 )
 
 AGENT_TOOLS = [
@@ -1282,6 +1283,21 @@ def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
                 "max_tool_rounds to 0 in config.json for unlimited)"
             )
             break
+        # user cancellation: 'agent /new' from any terminal raises the
+        # cancel flag while this mission is still running
+        try:
+            if (transport.read("cancel.txt") or "").strip().startswith(
+                "cancel"
+            ):
+                transport.write("cancel.txt", "consumed")
+                final = (
+                    "(mission cancelled by user — context is being cleared; "
+                    "send your new engagement)"
+                )
+                print("[bridge] mission cancelled by user")
+                break
+        except Exception:  # noqa: BLE001 - cancellation is best-effort
+            pass
         system_this = system_prompt
         state = mission_state(transport)
         if state:

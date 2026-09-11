@@ -1,5 +1,5 @@
 // worm — epidemic harvesting worm (GreyLLM standard)
-// WORM_VERSION = "22" (daemon auto-installs/updates this file)
+// WORM_VERSION = "23" (daemon auto-installs/updates this file)
 //
 // STANDALONE: no agent, daemon, or bridge required — needs ~/exploit.src
 // beside it (and compiles it if the binary is missing). Works in
@@ -743,10 +743,62 @@ main = function(params)
 	frontier = state[0]
 	owned = state[1]
 	done = state[2]
-	selfLan = comp.local_ip
-	selfPub = comp.public_ip
+	// OWN-NETWORK GUARD: the home LAN is OUR infrastructure. The v2-era
+	// seeding filled the frontier from get_router.devices_lan_ip and the
+	// guard only excluded the player's own two IPs — the epidemic then
+	// exploited the player's OWN router (192.168.1.1) and DISABLED ITS
+	// FIREWALL via the kernel attack. Never again: enumerate every
+	// device on our router + both our IPs + the router's, and block the
+	// whole /24 prefix of our local address.
+	globals.ownNet = []
+	r0 = get_router
+	if r0 != null then
+		devs0 = r0.devices_lan_ip
+		if devs0 != null then
+			for d0 in devs0
+				if d0 != null then
+					globals.ownNet.push(d0)
+				end if
+			end for
+		end if
+		if r0.local_ip != null then
+			globals.ownNet.push(r0.local_ip)
+		end if
+		if r0.public_ip != null then
+			globals.ownNet.push(r0.public_ip)
+		end if
+	end if
+	if comp.local_ip != null then
+		globals.ownNet.push(comp.local_ip)
+	end if
+	if comp.public_ip != null then
+		globals.ownNet.push(comp.public_ip)
+	end if
+	globals.lanPrefix = null
+	if comp.local_ip != null then
+		// CAREFUL: split() is REGEX-based — split(".") explodes into
+		// single characters (regex dot = any char), so the prefix is
+		// derived by scanning for the third dot instead
+		dots = []
+		for ci in range(0, comp.local_ip.len - 1)
+			if comp.local_ip[ci] == "." then
+				dots.push(ci)
+			end if
+		end for
+		if dots.len == 3 then
+			globals.lanPrefix = comp.local_ip[:dots[2] + 1]
+		end if
+	end if
 	selfGuard = function(ip)
-		if ip == selfLan or ip == selfPub then
+		if ip == null then
+			return true
+		end if
+		for x in globals.ownNet
+			if x == ip then
+				return true
+			end if
+		end for
+		if globals.lanPrefix != null and ip.indexOf(globals.lanPrefix) == 0 then
 			return true
 		end if
 		return false
@@ -754,21 +806,12 @@ main = function(params)
 	for s in seeds
 		if knownIp(frontier, owned, done, s) == false and selfGuard(s) == false then
 			frontier.push(s)
+		else if selfGuard(s) then
+			wlog("worm: seed " + s + " is on YOUR network — refusing to attack it")
 		end if
 	end for
-	if frontier.len == 0 and owned.len == 0 then
-		r = get_router
-		if r != null then
-			devs = r.devices_lan_ip
-			if devs != null then
-				for d in devs
-					if knownIp(frontier, owned, done, d) == false and selfGuard(d) == false then
-						frontier.push(d)
-					end if
-				end for
-			end if
-		end if
-	end if
+	// NO LAN AUTO-SEED: seeding from devices_lan_ip attacked our own
+	// router once. Fresh seedless runs go straight to random publics.
 
 	if autoInstall then
 		installAutorun(comp)
@@ -800,6 +843,13 @@ main = function(params)
 			ip = frontier[0]
 			frontier.remove(0)
 			if is_valid_ip(ip) != 1 then
+				done.push(ip)
+				continue
+			end if
+			// belt and braces: state files from older runs may still
+			// hold home-LAN entries — never attack them, retire them
+			if selfGuard(ip) then
+				wlog("worm: " + ip + " is on YOUR network — retired, never attacked")
 				done.push(ip)
 				continue
 			end if

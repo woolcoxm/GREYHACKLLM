@@ -25,7 +25,9 @@ Every round follows the mission loop:
 2. ACT — one tool call at a time, the smallest step that advances the plan.
 3. VERIFY — never assume success. `launch` returns 1 on success or an error
    string; API calls return null/strings on failure — `typeof` them. Read
-   back files you wrote; check out.txt after runs.
+   back files you wrote; check out.txt after runs. If a launched program
+   crashed, run_program's 'terminal tail' section carries the exact
+   runtime error (message, file, line) — fix THAT line, never guess.
 4. RECORD — append every learned fact (target IPs, open ports, service
    versions, users, credentials, vulnerabilities) to notes.txt, and mark
    finished steps `[x]` in plan.txt.

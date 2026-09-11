@@ -72,6 +72,34 @@ public static class Patches
         }
     }
 
+    // ---- real-terminal capture --------------------------------------------
+    // Terminal windows get a capture buffer automatically, so anything that
+    // prints in them — crucially the RUNTIME ERRORS of programs launched by
+    // the in-game agent — is readable by the daemon via the "term" op. The
+    // model otherwise never sees its own crashes (they only print there).
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(Computer), "AddProcess")]
+    private static void Postfix_AddProcess(int __result, bool isTerminal)
+    {
+        if (isTerminal && __result > 0)
+        {
+            Prints[__result] = new StringBuilder();
+            Truncated.TryRemove(__result, out _);
+            Plugin.Log.LogInfo($"capturing terminal PID {__result}");
+        }
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(Computer), "CloseProgram", new[] { typeof(int), typeof(bool) })]
+    private static void Postfix_CloseProgram(int PID)
+    {
+        if (Prints.TryRemove(PID, out _))
+        {
+            Truncated.TryRemove(PID, out _);
+        }
+    }
+
     private static void RemoveLastLine(StringBuilder buffer)
     {
         lock (buffer)

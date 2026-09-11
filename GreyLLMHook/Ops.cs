@@ -39,11 +39,54 @@ public static class Ops
                 return Delete(Str(req, "path"));
             case "run":
                 return Run(req);
+            case "term":
+                return TermTail(req);
             case "debug":
                 return DebugFs();
             default:
                 return HookServer.Error($"unknown op '{op}'");
         }
+    }
+
+    // Tail of captured terminal output. Runtime errors of programs launched
+    // by the in-game agent only print to the terminal — this op hands them
+    // to the daemon so the model can finally see its own crashes.
+    private static JObject TermTail(JObject req)
+    {
+        var maxChars = 4000;
+        var maxPerWindow = 2000;
+        var parts = new List<string>();
+        var pids = new List<int>(Patches.Prints.Keys);
+        pids.Sort();
+        foreach (var pid in pids)
+        {
+            if (!Patches.Prints.TryGetValue(pid, out var buf))
+            {
+                continue;
+            }
+            string text;
+            lock (buf)
+            {
+                text = buf.ToString();
+            }
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+            text = text.TrimEnd();
+            if (text.Length > maxPerWindow)
+            {
+                text = "..." + text.Substring(text.Length - maxPerWindow);
+            }
+            var trunc = Patches.Truncated.TryGetValue(pid, out var t) && t ? " [truncated]" : "";
+            parts.Add($"--- terminal {pid}{trunc} ---\n{text}");
+        }
+        var tail = string.Join("\n", parts);
+        if (tail.Length > maxChars)
+        {
+            tail = "..." + tail.Substring(tail.Length - maxChars);
+        }
+        return new JObject { ["ok"] = true, ["tail"] = tail };
     }
 
     // ---- guards ---------------------------------------------------------

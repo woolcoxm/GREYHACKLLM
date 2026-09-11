@@ -181,11 +181,13 @@ AGENT_TOOLS = [
         "name": "run_program",
         "description": "Launch a BINARY program (made with "
         "compile_program) with optional arguments. Raw .src source files "
-        "cannot be launched — compile them first. The program's terminal "
-        "output is not capturable, so this tool waits ~10s and returns "
-        "whatever the program appended to the bridge out.txt (sysinfo "
-        "reports the bridge dir) — have your programs append results "
-        "there. IMPORTANT: the launched program is a separate process — "
+        "cannot be launched — compile them first. This tool waits ~10s and "
+        "returns whatever the program appended to the bridge out.txt "
+        "(sysinfo reports the bridge dir) — have your programs append "
+        "results there. If the program CRASHED, its GreyScript runtime "
+        "error (exact message, file and line number) is returned in the "
+        "'terminal tail' section — read it and fix that exact line. "
+        "IMPORTANT: the launched program is a separate process — "
         "any shell or foothold it gains through exploits DIES when it "
         "exits. Design each tool as one complete unit of work (gain "
         "foothold → act → write results), or convert footholds into "
@@ -1124,15 +1126,41 @@ def dispatch_tool(config, transport, name, args, tag):
                     "the current game/agent.src into /bin/agent, then retry. "
                     "Do NOT try to work around this by launching files."
                 )
-            return True, result
+            return True, with_term_tail(transport, name, result)
         if status == f"error {tag}":
             transport.write("cmdflag.txt", "idle")
-            return False, (transport.read("command_result.txt") or "")[:8000]
+            return False, with_term_tail(
+                transport, name,
+                (transport.read("command_result.txt") or "")[:8000],
+            )
         time.sleep(config["poll_interval"])
     return (
         False,
         "error: the in-game runtime did not execute the command. Is "
         "agent still running in the game terminal?",
+    )
+
+
+def with_term_tail(transport, name, result):
+    """run_program: append the captured game-terminal tail. Runtime errors of
+    launched programs print ONLY to the game terminal — without this the
+    model never sees its own crashes and keeps shipping broken code."""
+    if name != "run_program":
+        return result
+    fetch = getattr(transport, "_call", None)
+    if fetch is None:
+        return result
+    try:
+        tail = (fetch({"op": "term"}) or {}).get("tail", "")
+    except Exception as exc:  # noqa: BLE001 - tail is best-effort
+        print(f"[bridge] term tail unavailable: {exc}")
+        return result
+    if not tail.strip():
+        return result
+    return (
+        result[:6000]
+        + "\n--- terminal tail (runtime errors print here) ---\n"
+        + tail[-1800:]
     )
 
 

@@ -367,7 +367,7 @@ victim — guest shells can't), and (with `-depth>0`) scp + launch the
 worm there so the **victim's CPU** attacks the next generation. Loot
 bucket-brigades home: each parent pulls its child's exfil file up
 through its foothold, hop by hop, into `~/Desktop/bankintel.txt`.
-Per-host firing is time-budgeted (default 120s) and known-winning
+known-winning
 exploit pairs accumulate and fire first on any host running the same
 library version. The worm also writes a per-host digest to
 `~/Desktop/wormreport.txt` — best privilege reached, files harvested,

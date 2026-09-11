@@ -28,14 +28,16 @@ you> root 192.168.1.1                    │
         ◀── reply: "rooted. proof: ..."  │  model: "run_program"
 ```
 
-Three pieces make this work, and each has to be installed once:
+The pieces that make this work, each installed once:
 
 | Piece | Where it lives | What it does |
 |---|---|---|
-| **GreyLLMHook** (BepInEx plugin) | Inside the game folder | Real-time bridge: exposes the game's live filesystem over loopback TCP so the daemon can read/write files in milliseconds instead of scraping the save DB |
+| **GreyLLMHook** (BepInEx plugin) | Inside the game folder | Real-time bridge: exposes the game's live filesystem and terminal output over loopback TCP so the daemon can read/write files in milliseconds instead of scraping the save DB |
 | **In-game program** (`agent`) | On your in-game machine | Interactive chat + one-shot missions: submits requests, executes the model's tool commands, streams its thoughts, prints replies |
 | **Watch daemon** (`bridge.py`) | On your PC | The agent harness: talks to the model (GLM), dispatches its tool calls into the game, injects prompts/memory, guards the protocol |
-| **Universal `exploit` tool** (`game/exploit.src`) | Auto-installed to `~/exploit.src` in game | One binary, every target: flag-driven exploitation (ports, vuln selection, overflow args, durable-access conversion) — the agent never writes per-target attack tools |
+| **Universal `exploit` tool** (`game/exploit.src`) | Auto-installed to `~/exploit.src` in game | One binary, every target: flag-driven exploitation. Fires the break-in, then harvests bank/mail files, escalates to root with a victim-side local run, and delegates the next infection generation — all IN-PROCESS while the foothold is alive |
+| **Epidemic `worm`** (`game/worm.src`) | Auto-installed to `~/worm.src` in game | The frontier driver for mass harvesting: launches the exploit per host, tracks owned/failed state, spreads across networks + random public IPs forever, and lands stolen credentials in `~/Desktop/bankintel.txt` |
+| **`secure` hardener** (`game/secure.src`) | Run manually in game | One-shot multiplayer box hardener: rotates passwords, removes guest, strips bait files, kills services, removes contraband |
 
 ---
 
@@ -102,21 +104,29 @@ flushed to disk.
 
 ### Part 2 — Install the in-game programs (one time, and after updates)
 
-The two game programs are plain GreyScript source files in this repo:
+The game programs are plain GreyScript source files in this repo:
 
 | Repo file | Save in game as | Purpose |
 |---|---|---|
 | `game/agent.src` | `/bin/agent` | The harness: interactive chat + one-shot missions + tool execution |
+| `game/exploit.src` | auto — see below | Universal exploitation tool |
+| `game/worm.src` | auto — see below | Epidemic harvesting worm |
+| `game/secure.src` | `~/secure.src` (optional) | Multiplayer box hardener |
 
-To install them:
+Only `agent` needs the manual paste (below). The daemon auto-installs and
+auto-updates `exploit.src`/`worm.src` into your home folder by version
+marker (and the worm re-compiles itself when its source changes), and
+`secure.src` you copy in yourself only if you're taking the box online.
+
+To install the agent runtime:
 
 1. Launch your singleplayer world and open a terminal.
 2. Open the in-game **Code Editor** (from the desktop).
 3. Create a new file, paste the entire contents of `game/agent.src` from
    this repo into it, and save it as `/bin/agent` (extensionless).
-   - If `/bin` is not writable in your world, save them into your home
+   - If `/bin` is not writable in your world, save it into your home
      folder instead (`/home/<you>/agent`) — the game terminal searches the
-     current directory first, so they still run by name from `~`.
+     current directory first, so it still runs by name from `~`.
 4. In the terminal, run the bridge self-test:
    ```
    agent -t
@@ -229,8 +239,6 @@ agent "root the machine at 192.168.1.1"
 agent -s pscan        # afterwards: save the last code block to ~/pscan
 ```
 
-### Plain chat (no tools)
-
 ### All in-game commands
 
 | Command | What it does |
@@ -242,6 +250,8 @@ agent -s pscan        # afterwards: save the last code block to ~/pscan
 | `agent -r` | Print the last reply again |
 | `agent -s <name>` | Save the last code block from a reply to `~/<name>` |
 | `/new` (any terminal, even mid-mission) | Cancel the active mission and clear ALL context — history, plan, notes — for a fresh engagement |
+| `worm [ip ...]` | Launch the epidemic (see below); `-g=N` caps cycles, `-auto` survives logins |
+| `secure` | Harden your box for multiplayer (run as root) |
 
 ### A note on missions and what to give the agent
 
@@ -294,6 +304,7 @@ the bridge `out.txt`, so the model actually sees what its code did.
 | `compile_program` | game | Source → runnable binary (`get_shell.build`) |
 | `run_program` | game | Launch a binary, wait, collect its output from `out.txt` **plus the game-terminal tail — runtime errors (exact message, file, line) flow back to the model** |
 | `api_doc` | daemon | Search the complete GreyScript API reference (below) |
+| `lib_intel` | daemon | Effects intel: parses a library's vulnerability table (effect, privilege, requirements, metaxploit gate) — know what an exploit does BEFORE firing it |
 | `load_skill` | daemon | Load a mission playbook (see below) |
 | `ask_user` | daemon | Blocker question: stop work, ask you, resume on reply |
 
@@ -314,6 +325,8 @@ only the index:
   created users, rshells, restored system files) |
 | `bank-heist` | Bank accounts and crypto wallets: password reuse,
   scripted phishing via the mail API, wallet file theft, cashing out |
+| `worm` | Driving the epidemic: distributed execution, fan-out
+  parallelism, the CPU-wear lesson, harness rules for bounded launches |
 
 The doctrine makes opsec mandatory: any mission touching someone else's
 machine ends with log clearing and artifact cleanup.
@@ -330,13 +343,82 @@ exploit <ip>                  # walk every open port: discover + fire all
 exploit <ip> -p=0             # kernel attack (port 0)
 exploit <ip> -a=0x58E9E6AD -x=rev_maskba   # re-fire one known vuln
 exploit <ip> -g=newpass       # overflow arg (password-change/LAN-ip vulns)
-exploit <ip> -u=bk -w=pw      # convert any foothold to a durable user
+exploit <ip> -u=bk -w=pw      # durable user to convert footholds into
 exploit <ip> -l               # list vulns + requirements, fire nothing
+exploit <ip> -E=/path         # exfil: harvested bank/mail files append here
+exploit <ip> -depth=2         # delegate the next worm generation to victims
+exploit -L -libdir=/lib       # LOCAL escalation: attack THIS machine's /lib
 exploit <ip> -o=/tmp/r -m=/lib/metaxploit.so   # when deployed ON a hop
 ```
 
+The harvest happens **at foothold time, in-process**: foothold objects
+die with the process that won them (http-only hosts have no ssh port to
+return to), so the tool walks `/home/*`, exfiltrates every readable
+`*bank*`/`*mail*` file to `-E`, drops itself on the victim and runs `-L`
+for local root, and (with `-depth>0`) drops + builds + launches the worm
+there so the **victim's CPU** attacks the next generation. Loot
+bucket-brigades home: each parent pulls its child's exfil file up through
+its foothold, hop by hop, into `~/Desktop/bankintel.txt`.
+
 Per-target knowledge (which area/name worked) lives in the agent's
 `notes.txt` — never in code.
+
+**`lib_intel` — effects intel before firing.** Library files are raw
+binary tables in-game (`get_content` refuses them), but the daemon can
+parse them: every vulnerability's effect (root shell vs password change
+vs junk), required privilege, unmet-requirement text, and metaxploit
+gate. For a target's service library: gain any foothold, `fileobject.copy`
+the lib home, then `lib_intel` the copy — then fire only the chosen vuln
+with `-a`/`-x` (+ `-g` for password changes). Vuln sets are fixed per
+library version, so recorded tables are durable world intel.
+
+### The epidemic worm
+
+`~/worm` is the frontier driver for mass harvesting ("steal bank details
+from everything"):
+
+```
+compile_program ~/worm.src -> ~/worm    # once; it re-compiles itself later
+~/worm <seed-ip>                        # FOREVER (see warning)
+~/worm <seed-ip> -g=5                   # bounded: 5 infection cycles
+~/worm <seed-ip> -auto                  # + auto-resume at every login
+~/worm -fanout=4                        # print 4 shard commands (parallel)
+~/worm -install-workers=4               # + init.d launchers for login-time
+~/worm -merge                           # union shards back into worm.state
+```
+
+Per host it launches `~/exploit` with `-E`/`-depth` and reads the report;
+owned hosts, credentials and the frontier persist in `~/worm.state`
+(saved after every host — any death resumes). Key flags: `-t=` hosts per
+cycle, `-r=` random public IPs per cycle, `-u/-w/-rp=` credentials (all
+validated alphanumeric before anything fires), `-depth=` infection-tree
+depth. Stolen credentials land in `~/Desktop/bankintel.txt`.
+
+> **CPU warning:** the game degrades hardware under sustained load. By
+> operator directive the worm is immortal (no runtime cap, no idle
+> shutdown — only 5s pacing and ping gates restrain it), and per the
+> distributed-execution design the heavy work runs on *infected*
+> machines. Still: run it on hardware you can afford to lose, and have
+> the agent launch it with a bounded `-g=`.
+
+### Hardening a box for multiplayer
+
+`game/secure.src` is a one-shot script for taking *your own* machine
+online (the toolkit itself stays singleplayer-only — the plugin refuses
+multiplayer worlds). As root:
+
+```
+secure --dry     # preview everything it would change
+secure           # rotate passwords, kill guest, strip bait, kill services
+secure --shred   # also DELETE Bank.txt/Mail.txt/wallet files outright
+```
+
+It rotates every user password to generated alphanumerics (printed once
+— write them down), removes the guest account, strips world-access from
+credential bait files, closes non-essential services (ssh stays), and
+removes the exploit/worm contraband an MP box should never carry, then
+prints the manual checklist the game has no API for (router firewall,
+port forwards, `apt-get upgrade`).
 
 **`api_doc`** searches a **complete API reference generated from the
 game's own metadata** (316 entries — every type, method, signature, return
@@ -357,10 +439,12 @@ caught and fed back without wasting an in-game round trip.
 |---|---|---|
 | `transport` | `"hook"` | `"hook"` = live plugin (fast); `"sqlite"` = direct save-DB access (slow fallback, works without plugin) |
 | `hook_port` | `7788` | Port the plugin listens on (must match plugin config) |
+| `hook_bridge_dir` | `""` | Force a specific bridge folder path (autodetected when empty) |
 | `api_style` | `"anthropic"` | Protocol for the LLM; agent mode requires anthropic |
 | `base_url` | z.ai endpoint | Any Anthropic-compatible endpoint |
 | `model` | `"glm-5.3"` | Model name |
 | `api_key` | — | Your key (or `daemon/api_key.txt` / `ZAI_API_KEY` env) |
+| `request_timeout` | `600` | Max seconds for one LLM API round trip |
 | `thinking_budget` | `6000` | Per-round thinking token cap; smaller = faster rounds, `0` = unbounded (can take minutes per round) |
 | `max_tokens` | `32768` | Output budget per round; thinking models need headroom |
 | `max_tool_rounds` | `0` | Tool rounds per message; `0` = unlimited (default) — loop detection is the safety net |
@@ -376,6 +460,8 @@ caught and fed back without wasting an in-game round trip.
 |---|---|
 | `daemon/*` or `daemon/prompt_pack/*` | Restart `bridge.cmd`. Prompts and reference load fresh on every request |
 | `game/agent.src` | Nothing — the daemon auto-installs it into `/bin/agent` (check `daemon.log` for "installed game runtime") |
+| `game/exploit.src` / `game/worm.src` | Nothing — the daemon auto-installs by version marker; delete the old `~/exploit`/`~/worm` binary (or just relaunch the worm) so the fresh source re-compiles |
+| `game/secure.src` | Re-paste it into the game yourself (it is not daemon-managed) |
 | `GreyLLMHook/*` | Rebuild + copy the DLL, restart the game |
 
 Regenerate the API reference appendix after a Grey Hack update:
@@ -444,9 +530,11 @@ python tools/hook-client.py health  # poke the plugin manually
   append results to the bridge `out.txt`, which `run_program` collects.
 - One mission at a time: the bridge folder is a single request/response
   channel.
-- The plugin's daemon-side `run` op (execute a script without the in-game
-  runtime) is unimplemented — the game has no window wiring for it; the
-  in-game `agent` runtime executes everything instead.
+- The plugin's daemon-side `run` op (execute a snippet without the
+  in-game runtime) runs on the game's script interpreter, so it needs the
+  game unpaused and ticking — Grey Hack pauses simulation when the window
+  loses focus; reads/writes still work while paused, script execution
+  does not.
 - Multiplayer is unsupported by design.
 
 ---
@@ -457,10 +545,13 @@ python tools/hook-client.py health  # poke the plugin manually
 GreyLLMHook/        BepInEx plugin C# source (the game-side bridge)
 game/agent.src      in-game harness runtime (auto-installed to /bin/agent)
 game/exploit.src    universal flag-driven exploitation tool (auto-installed to ~/)
+game/worm.src       epidemic harvesting worm (auto-installed to ~/)
+game/secure.src     one-shot multiplayer box hardener (manual install)
 daemon/bridge.py    the watch daemon: agent loop, tools, LLM calls
 daemon/prompt_pack/ system.md (mission doctrine) + greyscript_reference.md
                     (verified essentials + generated complete API appendix)
-                    + skills/ (opsec, recon, post-exploit, bank-heist playbooks)
+                    + skills/ (recon, post-exploit, opsec, bank-heist, worm
+                    playbooks)
 daemon/config.json.example
 tools/              validator, tests, API-reference generator, debug clients
 bridge.cmd          Windows launcher for the daemon

@@ -50,10 +50,12 @@ Working rules:
   at `~/exploit.src` — DAEMON-MANAGED: never modify or delete it (it
   self-restores). Compile once with compile_program, then reuse the
   `~/exploit` binary forever. It exploits ANY target via flags:
-  `exploit <ip>` (all ports), `-p=0` kernel, `-j` EFFECTS INTEL (see
-  below), `-a=ADDR`/`-x=NAME` fire a specific vuln, `-g=ARG` supplies overflow args (new password / LAN ip),
+  `exploit <ip>` (all ports), `-p=0` kernel, `-a=ADDR`/`-x=NAME` fire a
+  specific vuln, `-g=ARG` supplies overflow args (new password / LAN ip),
   `-u=user -w=pass` converts footholds to durable access, `-l` lists
-  without firing, `-q` fires only no-requirement exploits, `-o=PATH` sets
+  without firing, `-q` fires only no-requirement exploits, `-E=PATH`
+  exfills harvested bank/mail files at foothold time, `-depth=N`
+  delegates the next worm generation to the victim's CPU, `-o=PATH` sets
   the output file (use when deployed ON a hop — copy `~/exploit` +
   metaxploit.so there and run with -o), `-m=libpath` metaxploit location.
   NEVER write your own exploit-firing code — any tool containing
@@ -74,11 +76,13 @@ Working rules:
   and record what each returned. Never fire blind and hope.
 - **MASS HARVESTING = the standard worm.** For epidemic-scale theft
   ("steal bank details from everything", "spread through networks"):
-  compile and run `~/worm` — it breaks in, escalates to root locally,
-  harvests bank/mail files to ~/Desktop/bankintel.txt, spreads via
-  victim-side scans + random public IPs, and cleans every trace, saving
-  state after each host. Drive it in generations (run_program ~/worm),
-  not one giant run. See load_skill("worm").
+  compile and run `~/worm` — per host its `~/exploit` launch breaks in,
+  harvests bank/mail files to ~/Desktop/bankintel.txt AT FOOTHOLD TIME,
+  escalates to root with a victim-side -L run, and DELEGATES the next
+  infection generation to the victim's own CPU (depth-limited tree) so
+  the epidemic's compute lands on the infected, not on the player.
+  Drive it in generations (run_program ~/worm with a bounded -g=), not
+  one giant run. See load_skill("worm").
 - **ITERATE, DON'T PROLIFERATE.** One tool per PURPOSE, one file per
   tool, named by purpose (recon.src, pwn.src, hopmap.src). When a tool
   fails, FIX THE SAME FILE — write_file overwrites it — then recompile
@@ -173,8 +177,10 @@ Recon and attack flow that works in-game:
    `computer`, `file`, 1/0, or null. ALWAYS `typeof(result)` before use;
    try multiple areas/exploits until one returns something useful.
 6. With a shell: `result.host_computer` is the victim — read /etc/passwd,
-   change_password, create_user, etc. With `connect_service(ip, port,
-   user, pass)` you can log back in as a user you created.
+   change_password, create_user, etc. `connect_service(ip, port, user,
+   pass)` logs back in as a user you created — but ONLY on SSH/FTP
+   ports, and create_user works just from root footholds; http-only
+   victims are one-pass (finish everything before the process exits).
 7. **ONE SHOT IN, THEN GO LOCAL.** Fire remote exploits only until you
    hold ANY foothold (shell/computer object/durable creds) — every extra
    remote fire is a log entry on the target. Once inside, STOP attacking

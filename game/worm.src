@@ -1,12 +1,21 @@
-// worm — aggressive staged harvesting worm (GreyLLM standard)
-// WORM_VERSION = "13" (daemon auto-installs/updates this file)
+// worm — epidemic harvesting worm (GreyLLM standard)
+// WORM_VERSION = "19" (daemon auto-installs/updates this file)
 //
-// Per host: break in with the standard ~/exploit tool, ESCALATE LOCALLY
-// to root (victim-side exploit -L, password-change attempts, root
-// reconnect), harvest bank/mail credentials as root when possible,
-// discover that network's attack surface, add random public IPs, clean
-// every trace, move to the next host. If root is impossible the host is
-// still harvested with the durable user and the infection moves on.
+// ARCHITECTURE (v14+): the worm is the FRONTIER DRIVER. It does not touch
+// victims itself — for each host it launches ~/exploit, which does the
+// entire attack IN-PROCESS while its foothold object is alive: break in,
+// harvest every bank/mail file to the exfil file, escalate to root with a
+// victim-side -L run, DELEGATE the next infection generation to the
+// victim's own CPU (drops + builds + launches worm -child there), and
+// clean up its artifacts. The worm reads the report (HARVEST/OWNED/
+// NEWTARGET lines), records state, and moves to the next host. Re-entry
+// via connect_service is retired: http-only hosts have no ssh:22 to
+// return to, create_user is root-only, /etc/passwd is guest-denied.
+//
+// The infection TREE carries loot home bucket-brigade style: each child's
+// -E exfil file is pulled up by its parent through the foothold object
+// after the synchronous launch returns, hop by hop, until it lands in
+// ~/Desktop/bankintel.txt on YOUR machine.
 //
 // usage (from your home machine):
 //   worm [ip ...] [flags]      THE EPIDEMIC — infect -> harvest ->
@@ -23,6 +32,8 @@
 //     -g=N   cap on infection cycles this run (default 0 = INFINITE)
 //     -t=N   hosts per cycle                (default 3, cap 10)
 //     -r=N   random public IPs per cycle    (default 2, cap 8)
+//     -depth=N   infection tree depth passed to the exploit's child
+//                delegation (default 3; children pass depth-1 down)
 //     -auto  ALSO install itself into /etc/init.d (autorun: the
 //            epidemic resumes automatically at every game login)
 //     -o=P   exfil file, appended per host    (default ~/Desktop/bankintel.txt)
@@ -40,17 +51,21 @@
 //                 workers (CPU wear scales with N; default cap 8)
 //     -merge      union all shard states back into ~/worm.state
 //
-// internal mode (launched BY the worm on a victim):
-//   worm -scan -o=PATH     print "ip=A port=N" lines for that network
+// internal modes (launched BY other components, not by you):
+//   worm -scan -o=PATH        print "ip=A port=N" lines for this
+//                             machine's network (runs ON a victim)
+//   worm -child -depth=N ...  the delegated next generation — runs ON an
+//                             infected machine, all paths in /tmp
+//                             (loot.txt, wstate; homeBase=/tmp)
 //
 // Mechanics (all verified in-game): footholds only via ~/exploit (this
-// worm never fires overflow()); victim entry via connect_service with
-// the durable user; LOCAL root escalation runs ON the victim (its own
-// metaxploit + /lib); cross-machine file moves use text drop+build or
-// shell.scp (get_content refuses binary files); every victim ends with
-// artifact deletion and a wiped /var/system.log. GreyScript has no
-// try/catch: every call below is null/typeof-guarded, loops are
-// bounded, and state is saved after EVERY host so any death resumes.
+// worm never fires overflow()); ping gates skip dead addresses before
+// any work; every credential is validated [a-zA-Z0-9]{1,15} BEFORE any
+// attack fires (the game rejects anything else); cross-machine file
+// moves use text drop+build or shell.scp (get_content refuses binary
+// files). GreyScript has no try/catch: every call below is
+// null/typeof-guarded, loops are bounded, and state is saved after
+// EVERY host so any death resumes.
 
 NL = char(10)
 
@@ -300,74 +315,6 @@ knownIp = function(frontier, owned, done, ip)
 	return false
 end function
 
-// ---- victim pipeline ----
-
-harvestHomes = function(comp, exfilPath, tag, vic)
-	// steal every readable bank/mail file from every user home
-	home = vic.File("/home")
-	if home == null then
-		return 0
-	end if
-	users = home.get_folders
-	if users == null then
-		return 0
-	end if
-	got = 0
-	for uf in users
-		files = uf.get_files
-		if files == null then
-			continue
-		end if
-		for f in files
-			nm = f.name.lower
-			if containsStr(nm, "bank") or containsStr(nm, "mail") then
-				content = f.get_content
-				if content == null then
-					continue
-				end if
-				appendFile(comp, exfilPath, "== " + tag + " " + uf.name + "/" + f.name + " ==" + NL + content + NL)
-				got = got + 1
-			end if
-		end for
-	end for
-	return got
-end function
-
-harvestRootExtras = function(comp, exfilPath, tag, vic)
-	// root-only loot: the full account table (hashes crack offline)
-	pw = vic.File("/etc/passwd")
-	if pw != null then
-		c = pw.get_content
-		if c != null then
-			appendFile(comp, exfilPath, "== " + tag + " /etc/passwd ==" + NL + c + NL)
-		end if
-	end if
-	return null
-end function
-
-dropText = function(vic, path, content)
-	// write a TEXT file on the victim (binary transfer needs scp)
-	parts = path.split("/")
-	name = parts[parts.len - 1]
-	vic.touch(parent_path(path), name)
-	f = vic.File(path)
-	if f == null then
-		return false
-	end if
-	f.set_content(content)
-	return true
-end function
-
-cleanDrops = function(vic, vhome, names)
-	for nm in names
-		f = vic.File(vhome + "/" + nm)
-		if f != null then
-			f.delete
-		end if
-	end for
-	return null
-end function
-
 installAutorun = function(comp)
 	// /etc/init.d on the PLAYER's machine is executed at every game
 	// login (AutorunServerRpc, verified in game source) — installing
@@ -390,76 +337,6 @@ installAutorun = function(comp)
 	end if
 	print("worm: installed into /etc/init.d — epidemic auto-resumes every login")
 	return true
-end function
-
-clearLog = function(vic)
-	lf = vic.File("/var/system.log")
-	if lf != null then
-		lf.set_content(" ")
-	end if
-	return null
-end function
-
-escalateLocal = function(comp, sh, vhome, user, pass, rootPass)
-	// escalate to root FROM INSIDE the victim: build the standard
-	// exploit there and fire its LOCAL /lib attacks. Password-change
-	// vulns fire with rootPass; footholds convert to durable access.
-	// Returns "root" when a root shell login succeeded.
-	b = sh.build(vhome + "/exploit.src", vhome)
-	if b != "" then
-		print("  escalate: victim-side build failed: " + b)
-		return "none"
-	end if
-	metaxLocal = sh.host_computer.File("/lib/metaxploit.so")
-	mFlag = ""
-	if metaxLocal == null then
-		shipped = sh.host_computer.File(vhome + "/metaxploit.so")
-		if shipped != null then
-			mFlag = " -m=" + vhome + "/metaxploit.so"
-		else
-			print("  escalate: no metaxploit on victim — cannot escalate")
-			return "none"
-		end if
-	end if
-	// the -L run writes its report on the victim
-	lr = sh.launch(vhome + "/exploit", "-L -u=" + user + " -w=" + pass + " -g=" + rootPass + mFlag)
-	if lr != 1 then
-		print("  escalate: local run failed: " + lr)
-		return "none"
-	end if
-	report = readFileOr(sh.host_computer, vhome + "/exploit_out.txt", "")
-	if report == null then
-		report = ""
-	end if
-	if containsStr(report, "FOOTHOLD shell") then
-		// the tool already created/re-created the durable user from the
-		// foothold — check whether that foothold was root and try a root
-		// login via the changed password anyway
-		print("  escalate: local foothold gained" + "")
-	end if
-	if containsStr(report, "SUCCESS") == false then
-		return "tried"
-	end if
-	// a password-change fired — root may now accept rootPass
-	rootSh = get_shell.connect_service(ipOf(sh), 22, "root", rootPass)
-	if typeof(rootSh) == "shell" then
-		print("  escalate: ROOT via password change")
-		return ["root", rootSh]
-	end if
-	return "tried"
-end function
-
-ipOf = function(sh)
-	// best-effort public ip of the machine a shell lives on
-	c = sh.host_computer
-	if c == null then
-		return "0.0.0.0"
-	end if
-	p = c.public_ip
-	if p == null then
-		return "0.0.0.0"
-	end if
-	return p
 end function
 
 processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormSrc)

@@ -4,13 +4,17 @@
 The GLM model is given tools (read/write/list/run on the in-game machine) and
 iterates until the task is done, Claude-Code style.
 
-Transport: Grey Hack stores the whole singleplayer world in a SQLite database
-(GreyHack_Data/GreyHackDB.db). In-game files live as rows in the Files table,
-referenced by ID from the Computer.FileSystem JSON tree. The bridge talks
-through that database: `agent` in the game writes prompt/status rows; this
-daemon reads them, calls GLM, writes responses back. All bridge writes are
-single-transaction row updates on files that already exist, so the tree is
-never touched.
+Transport (default "hook"): the GreyLLMHook BepInEx plugin inside the game
+exposes the live world over loopback TCP (127.0.0.1:7788) — file reads and
+writes hit the in-memory world in milliseconds, and a 'term' op hands back
+terminal output so the model sees its own runtime errors. Fallback
+"sqlite": Grey Hack stores the whole singleplayer world in a SQLite database
+(GreyHack_Data/GreyHackDB.db); in-game files live as rows in the Files table,
+referenced by ID from the Computer.FileSystem JSON tree. The daemon can talk
+through that database directly — it works without the plugin, but each hop
+only sees what the game has flushed to disk (~a minute per round trip). All
+bridge writes are single-transaction row updates on files that already
+exist, so the tree is never touched.
 
 Setup:
     python bridge.py --db-map            (after `agent -t` in game)

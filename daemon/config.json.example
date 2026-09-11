@@ -13,9 +13,7 @@
   "thinking_budget": 6000,
   "max_tool_rounds": 0,
   "tool_timeout": 360,
-
   "_comment_sqlite_fallback": "only needed when transport is 'sqlite'",
   "db_path": "C:\\Program Files (x86)\\Steam\\steamapps\\Common\\Grey Hack\\Grey Hack_Data\\GreyHackDB.db",
-  "db_file_ids": {},
-  "bridge_dir": ""
+  "db_file_ids": {}
 }

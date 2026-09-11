@@ -18,23 +18,34 @@ belongs. `-depth=` tunes the tree depth.
 
 ## The worm's cycle (per host)
 
-1. **Entry**: launches `~/exploit <ip> -q -u=worm -w=...` — quiet
-   (no-requirement exploits only), converting any foothold to a durable
-   user on the spot.
-2. **Escalation**: enters with the durable user, drops + compiles
-   `exploit.src` ON the victim, and runs `exploit -L` there — local
-   /lib attacks for root, including password-change attempts
-   (`-rp=` root password). If root lands, harvest runs as root (every
-   home + /etc/passwd hashes). If not, harvest as the user and move on.
-3. **Harvest**: every readable `*bank*`/`*mail*` file in every
-   `/home/*` — appended to the exfil file (default
-   `~/Desktop/bankintel.txt`).
-4. **Spread**: builds `worm` on the victim, runs `worm -scan` there to
-   enumerate THAT network's public attack surface + LAN, reads the map
-   back. Plus fresh random public IPs every generation — the frontier
+The worm is the FRONTIER DRIVER — it never touches victims itself.
+For each host it launches `~/exploit <ip> -u=... -w=... -g=<rootpass>
+-E=<exfil> -depth=<n>`, and the exploit does everything IN-PROCESS while
+its foothold object is alive:
+
+1. **Entry**: full-fire across every open port (quiet `-q` mode only
+   fires no-requirement exploits and starves the worm to zero — do not
+   use it). The first shell/computer foothold wins.
+2. **Harvest**: every readable `*bank*`/`*mail*` file in every
+   `/home/*` — appended to the exfil file right through the foothold
+   (default `~/Desktop/bankintel.txt`). Re-login is impossible on
+   http-only hosts, so nothing waits for "later".
+3. **Escalation**: the exploit drops + compiles itself on the victim
+   and runs `exploit -L` THERE — local /lib attacks for root
+   (password-change attempts with `-rp=`). A root foothold re-harvests
+   every home.
+4. **Delegation**: with depth > 0 it also drops + builds `worm` on the
+   victim and launches `worm -child -depth-1` there — the infected
+   machine attacks the NEXT generation. Loot bucket-brigades home: each
+   parent pulls its child's exfil file up through the foothold after
+   the synchronous launch returns.
+5. **Spread**: the child (or a depth-0 scan) enumerates THAT network's
+   public attack surface — results ride the report home as NEWTARGET
+   lines. Plus fresh random public IPs every cycle — the frontier
    never runs dry.
-5. **Stealth**: every dropped artifact deleted, victim `/var/system.log`
-   wiped. State saved after EVERY host — any death resumes on rerun.
+6. **Stealth**: dropped artifacts deleted, victim `/var/system.log`
+   wiped (best-effort — it is root-owned). State saved after EVERY
+   host — any death resumes on rerun.
 
 ## Driving the epidemic
 
@@ -50,8 +61,14 @@ epidemic auto-resumes at every game login. Kill with the terminal
 close / process kill; state (`~/worm.state`) resumes on next launch.
 Multiple terminals with different `-s=` state files = parallel
 epidemics (GreyScript has no threads — instances are the parallelism).
+`-fanout=N` automates it: splits the frontier across N shard state
+files and prints the N launch commands to paste into N terminals;
+`-install-workers=N` additionally installs N compiled launchers into
+/etc/init.d so every login auto-starts N parallel workers;
+`-merge` unions the shards back into ~/worm.state.
 Flags: `-g=` cap cycles (0=infinite), `-t=` hosts/cycle, `-r=` random
-IPs/cycle, `-o=` exfil, `-u/-w` creds, `-rp=` root password.
+IPs/cycle, `-depth=` infection-tree depth, `-o=` exfil, `-u/-w` creds,
+`-rp=` root password.
 
 IMPORTANT for the harness: an infinite worm blocks the serve loop
 forever. When launching via run_program, ALWAYS pass a bounded -g=

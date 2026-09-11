@@ -30,10 +30,13 @@ alive:
    can read). Quiet `-q` mode starved the worm to zero entries once —
    never default it.
 2. **Kernel**: when no root-class foothold emerged, fire port 0 too.
-3. **Crack + become**: /etc/passwd readable → decipher every hash,
-   connect_service as the strongest cracked account where ssh exists
-   (there is NO su in this game — a network login is the only identity
-   switch); re-harvest when that upgrades access.
+3. **Crack + become (root only)**: /etc/passwd readable → decipher
+   ONLY root's hash (root owns the whole box; other accounts are
+   noise). Remote: connect_service on the ssh/ftp port. On the victim
+   (-L mode): `get_shell("root", pass)` — the LOCAL identity switch
+   (sudo is the terminal's wrapper around exactly this call, verified
+   in the game's own command script) — no ssh port needed. Re-harvest
+   when access upgrades.
 4. **Harvest**: every readable `*bank*`/`*mail*`/`*wallet*` file in
    every `/home/*` plus the passwd table — appended to the exfil file
    right through the foothold (default `~/Desktop/bankintel.txt`).

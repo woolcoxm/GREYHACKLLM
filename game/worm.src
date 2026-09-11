@@ -1,5 +1,5 @@
 // worm — aggressive staged harvesting worm (GreyLLM standard)
-// WORM_VERSION = "10" (daemon auto-installs/updates this file)
+// WORM_VERSION = "11" (daemon auto-installs/updates this file)
 //
 // Per host: break in with the standard ~/exploit tool, ESCALATE LOCALLY
 // to root (victim-side exploit -L, password-change attempts, root
@@ -421,7 +421,15 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	// exploitable vulns are requirement-gated: -q starved the worm to
 	// zero entries. Stealth comes from the per-host cleanup + log wipe,
 	// not from firing fewer shots.
+	//
+	// REPORT PATH: mirror the tool's findOut EXACTLY — it writes to the
+	// bridge out.txt only when the bridge folder exists, otherwise to
+	// ~/exploit_out.txt. Reading a fixed path while the tool fell back
+	// made the worm discard 10 real footholds as "no entry".
 	outPath = home_dir + "/.greyllm/out.txt"
+	if comp.File(home_dir + "/.greyllm") == null then
+		outPath = home_dir + "/exploit_out.txt"
+	end if
 	outF = ensureFile(comp, outPath, " ")
 	if outF != null then
 		outF.set_content(" ")

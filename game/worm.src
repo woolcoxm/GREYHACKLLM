@@ -468,7 +468,7 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	shell = get_shell
 
 	// 0. ensure our standard tool exists (self-heal compile)
-	expBin = comp.File(home_dir + "/exploit")
+	expBin = comp.File(globals.homeBase + "/exploit")
 	if expBin == null then
 		b = shell.build(home_dir + "/exploit.src", home_dir)
 		if b != "" then
@@ -502,7 +502,7 @@ processVictim = function(comp, ip, exfilPath, user, pass, rootPass, exSrc, wormS
 	if guardCreds(user, pass, rootPass) == false then
 		return "skip"
 	end if
-	lr = shell.launch(home_dir + "/exploit", ip + entryFlags + " -u=" + user + " -w=" + pass + " -g=" + rootPass)
+	lr = shell.launch(globals.homeBase + "/exploit", ip + entryFlags + " -u=" + user + " -w=" + pass + " -g=" + rootPass)
 	if lr != 1 then
 		wlog(mark + ": exploit launch failed: " + lr)
 		return "skip"
@@ -611,6 +611,8 @@ main = function(params)
 	mergeMode = false
 	fanoutN = null
 	installWorkers = false
+	childMode = false
+	depth = 3
 	exfilPath = home_dir + "/Desktop/bankintel.txt"
 	statePath = home_dir + "/worm.state"
 	user = "worm"
@@ -633,6 +635,10 @@ main = function(params)
 				quietEntry = true
 			else if p == "-merge" then
 				mergeMode = true
+			else if p == "-child" then
+				childMode = true
+			else if p.indexOf("-depth=") == 0 then
+				depth = val(p[7:])
 			else if p.indexOf("-fanout=") == 0 then
 				fanoutN = val(p[8:])
 			else if p.indexOf("-install-workers=") == 0 then
@@ -762,9 +768,24 @@ main = function(params)
 		return null
 	end if
 
+	// child mode: everything lives in /tmp beside the dropped sources;
+	// root mode: the player's home
+	homeBase = home_dir
+	if childMode then
+		homeBase = "/tmp"
+		if exfilPath == home_dir + "/Desktop/bankintel.txt" then
+			exfilPath = "/tmp/loot.txt"
+		end if
+		if statePath == home_dir + "/worm.state" then
+			statePath = "/tmp/wstate"
+		end if
+	end if
+
+	globals.homeBase = homeBase
+
 	// sources carried for spreading (text only — binaries go by scp)
-	exSrc = readFileOr(comp, home_dir + "/exploit.src", null)
-	wormSrc = readFileOr(comp, home_dir + "/worm.src", null)
+	exSrc = readFileOr(comp, homeBase + "/exploit.src", null)
+	wormSrc = readFileOr(comp, homeBase + "/worm.src", null)
 	if exSrc == null then
 		print("worm: ~/exploit.src missing — no spread or escalation this run")
 	end if

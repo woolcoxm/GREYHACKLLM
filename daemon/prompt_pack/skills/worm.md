@@ -4,6 +4,18 @@ Load for: missions like "steal bank details from everything", "spread
 across the network", mass credential harvesting. The standard worm
 (`~/worm.src`, daemon-managed like ~/exploit.src) does the whole cycle.
 
+## Distributed execution (v17)
+
+The player's machine must NOT do the epidemic's compute — every
+processor death traced to exactly that. Now: when the exploit tool
+holds a shell foothold, it DELEGATES the next generation — drops
+worm+exploit sources on the victim, builds them there, and launches
+`worm -child` ON the victim (depth-limited tree, default 3). The
+victim's CPU attacks the next hosts, harvests, and writes loot to its
+/tmp; when the synchronous launch returns, the parent pulls the loot
+home and surfaces NEWTARGETs. CPU wear lands on the infected, where it
+belongs. `-depth=` tunes the tree depth.
+
 ## The worm's cycle (per host)
 
 1. **Entry**: launches `~/exploit <ip> -q -u=worm -w=...` — quiet

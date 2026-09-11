@@ -72,9 +72,9 @@ DEFAULT_CONFIG = {
     "db_file_ids": {},
     "poll_interval": 0.5,
     "max_history": 6,
-    "request_timeout": 300,
+    "request_timeout": 600,
     "max_tokens": 16384,
-    "max_tool_rounds": 40,
+    "max_tool_rounds": 0,
     "tool_timeout": 120,
 }
 
@@ -1018,10 +1018,54 @@ def mission_state(transport):
 
 
 def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
-    """Run the harness until the model stops calling tools."""
+    """Run the harness until the model stops calling tools.
+
+    Rounds are unlimited by default (max_tool_rounds = 0); runaway missions
+    are caught by loop detection instead of a hard budget:
+    - the same (tool, arguments) call 3 times -> served the cached result
+      plus a warning (identical calls cannot produce new information)
+    - the 4th identical call, or 12 consecutive failed tool results ->
+      the loop is closed out with one final no-tools summary
+    """
     messages = list(history) + [{"role": "user", "content": prompt}]
     final = ""
-    for round_no in range(1, config["max_tool_rounds"] + 1):
+    max_rounds = int(config["max_tool_rounds"] or 0)  # 0 = unlimited
+    round_no = 0
+    call_counts = {}
+    last_results = {}
+    fail_streak = 0
+    call_seq = []
+
+    def loop_handoff(reason):
+        # one last no-tools turn so the player gets a usable summary
+        # instead of a dead end
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "SYSTEM: " + reason + " You may NOT call any more "
+                    "tools. Reply now with your final answer: what you "
+                    "achieved, the current state (plan/notes are saved), "
+                    "and exactly what the user should do next."
+                ),
+            }
+        )
+        try:
+            data = llm_fn(system_prompt, messages, with_tools=False)
+            text = extract_text(data.get("content", [])).strip()
+            return f"{reason}\n{text}" if text else reason
+        except Exception as exc:
+            print(f"[bridge] loop handoff LLM call failed: {exc}")
+            return reason
+
+    while True:
+        round_no += 1
+        if max_rounds and round_no > max_rounds:
+            final = loop_handoff(
+                f"(stopped after {max_rounds} tool rounds — set "
+                "max_tool_rounds to 0 in config.json for unlimited)"
+            )
+            break
         system_this = system_prompt
         state = mission_state(transport)
         if state:
@@ -1046,19 +1090,83 @@ def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
                 )
             break
         results = []
+        abort_reason = None
         for call_index, call in enumerate(tool_uses):
             name = call.get("name", "?")
+            args = call.get("input", {})
+            key = (name, json.dumps(args, sort_keys=True))
+            call_counts[key] = call_counts.get(key, 0) + 1
+            call_seq.append(key)
+            tag = f"{round_no}-{call_index}"
             print(
                 f"[bridge] tool call {round_no}: {name}"
-                f"({json.dumps(call.get('input', {}))[:120]})"
+                f"({json.dumps(args)[:120]})"
             )
-            tag = f"{round_no}-{call_index}"
-            try:
-                ok, output = dispatch_tool(
-                    config, transport, name, call.get("input", {}), tag
+            if call_counts[key] >= 4:
+                abort_reason = (
+                    f"(mission stopped: loop detected — `{name}` was "
+                    f"called with identical arguments "
+                    f"{call_counts[key]} times)"
                 )
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": call["id"],
+                        "content": "LOOP ABORT: identical call repeated "
+                        f"{call_counts[key]} times. Not executed. Wrap up.",
+                        "is_error": True,
+                    }
+                )
+                break
+            if call_counts[key] == 3:
+                ok_prev, out_prev = last_results.get(
+                    key, (False, "(no cached result)")
+                )
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": call["id"],
+                        "content": (
+                            "LOOP WARNING: this exact call has already run "
+                            f"{call_counts[key] - 1} times — re-running it "
+                            "identically cannot produce new information. "
+                            f"Previous result ({'ok' if ok_prev else 'error'}"
+                            f"): {out_prev[:3000]}\n"
+                            "Change the approach, fix the underlying cause "
+                            "first, or use ask_user. A further identical "
+                            "repeat will abort the mission."
+                        ),
+                        "is_error": True,
+                    }
+                )
+                continue
+            if (
+                len(call_seq) >= 12
+                and call_seq[-6:] == call_seq[-12:-6]
+            ):
+                # the last 6 calls exactly repeat the 6 before them —
+                # an A-B-A-B cycle; block this step and teach
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": call["id"],
+                        "content": (
+                            "LOOP WARNING: your recent tool calls are "
+                            "cycling through the same steps without "
+                            "progress. Break the cycle: re-read your "
+                            "plan.txt, change one thing materially, or "
+                            "use ask_user."
+                        ),
+                        "is_error": True,
+                    }
+                )
+                continue
+            try:
+                ok, output = dispatch_tool(config, transport, name, args, tag)
             except (KeyError, ValueError) as exc:
                 ok, output = False, f"error: {exc}"
+            last_results[key] = (ok, output)
+            fail_streak = fail_streak + 1 if not ok else 0
             print(
                 f"[bridge] tool result "
                 f"{'ok' if ok else 'FAILED'}: {output[:120]!r}"
@@ -1072,8 +1180,16 @@ def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
                 }
             )
         messages.append({"role": "user", "content": results})
-    else:
-        final = "(stopped: reached the tool round limit)\n\n" + final
+        if abort_reason:
+            final = loop_handoff(abort_reason)
+            break
+        if fail_streak >= 12:
+            final = loop_handoff(
+                "(mission stopped: 12 consecutive tool failures — the "
+                "situation is not improving; the user should look at the "
+                "errors above)"
+            )
+            break
     return final
 
 

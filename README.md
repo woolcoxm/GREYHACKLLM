@@ -215,8 +215,9 @@ you> exit
 
 This is the main way to use GreyLLM. Each message continues the same
 conversation: the daemon keeps chat history, the agent keeps its
-`plan.txt`/`notes.txt`, and each message gets a fresh tool-round budget
-(40 rounds). Type `exit` (or `quit`) to close the session.
+`plan.txt`/`notes.txt`, and each message gets a fresh **unlimited**
+tool-round budget — loops are caught by detection, not a limit. Type
+`exit` (or `quit`) to close the session.
 
 ### One-shot missions
 
@@ -264,7 +265,7 @@ Give it **goals, not step lists** — it plans itself. Two things to know:
 ## How a mission works (the loop)
 
 When you send a message, this cycle runs until the model stops calling
-tools or the round budget (40) is exhausted:
+tools, a loop is detected, or it produces its final answer:
 
 1. The daemon builds the system prompt: the mission doctrine, the
    GreyScript reference essentials, the full conversation history, and —
@@ -324,7 +325,7 @@ caught and fed back without wasting an in-game round trip.
 | `model` | `"glm-5.3"` | Model name |
 | `api_key` | — | Your key (or `daemon/api_key.txt` / `ZAI_API_KEY` env) |
 | `max_tokens` | `16384` | Output budget per round; thinking models need headroom |
-| `max_tool_rounds` | `40` | Tool rounds per message |
+| `max_tool_rounds` | `0` | Tool rounds per message; `0` = unlimited (default) — loop detection is the safety net |
 | `tool_timeout` | `120` | Seconds to wait for the in-game runtime before failing a tool |
 | `max_history` | `6` | Conversation exchanges kept across requests |
 | `poll_interval` | `0.5` | Bridge poll cadence (seconds) |

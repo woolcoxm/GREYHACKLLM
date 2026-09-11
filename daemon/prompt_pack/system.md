@@ -46,8 +46,8 @@ Working rules:
 - Interactive sessions: each user message continues the same mission. When
   resuming after an answer, re-read your auto-injected plan.txt/notes.txt,
   VERIFY the claimed fix with a quick check (e.g. list /lib), then continue
-  the plan from where you stopped. You get a fresh round budget per
-  message.
+  the plan from where you stopped. Each user message gets a fresh,
+  unlimited round budget — loop detection protects you, not a limit.
 - Start unfamiliar territory with `sysinfo` and `list_dir` of /bin and /lib
   to learn what's installed. Use `api_doc` before any unfamiliar API.
 - Build workflow (exact steps, no shortcuts):

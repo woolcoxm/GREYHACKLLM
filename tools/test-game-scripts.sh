@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-sed -e 's/STALL_TIMEOUT = 300/STALL_TIMEOUT = 2/' \
+sed -e 's/STALL_TIMEOUT = [0-9]*/STALL_TIMEOUT = 2/' \
     -e 's/while waited < 60/while waited < 2/' \
     game/agent.src > "$WORK/agent.src"
 sed -e 's/TIMEOUT = 240/TIMEOUT = 2/' game/llm.src > "$WORK/llm.src"

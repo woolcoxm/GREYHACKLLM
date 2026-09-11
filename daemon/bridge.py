@@ -603,10 +603,13 @@ class HookTransport:
                     buf += chunk
                 return _json.loads(buf.decode("utf-8"))
             except (ConnectionError, OSError, BrokenPipeError):
-                try:
-                    self._sock.close()
-                except OSError:
-                    pass
+                # _sock can be None here (connect itself failed) — the
+                # cleanup must never crash the daemon
+                if self._sock is not None:
+                    try:
+                        self._sock.close()
+                    except OSError:
+                        pass
                 self._sock = None
                 if attempt == 1:
                     raise ConnectionError(
@@ -1485,6 +1488,10 @@ def watch(config, mock):
         print(f"[bridge] database backed up to {backup}")
     try:
         transport.read("status.txt")
+    except ConnectionError as exc:
+        # game not up yet — fine, the watch loop waits for it
+        print(f"[bridge] {exc}")
+        print("[bridge] waiting for the game to start...")
     except Exception as exc:  # noqa: BLE001 - config problem
         die(f"cannot read bridge files: {exc}")
     if isinstance(transport, HookTransport):
@@ -1508,9 +1515,20 @@ def watch(config, mock):
         "[bridge] watching game save. In game: agent <task>  |  "
         "llm <question>  (Ctrl+C to stop)"
     )
+    game_down_since = None
     try:
         while True:
-            run_cycle(config, transport, mock)
+            try:
+                run_cycle(config, transport, mock)
+                game_down_since = None
+            except ConnectionError as exc:
+                # the game closing must idle the daemon, never kill it —
+                # it picks up again the moment the game relaunches
+                if game_down_since is None:
+                    game_down_since = time.time()
+                    print(f"[bridge] {exc} — waiting for the game...")
+                time.sleep(3)
+                continue
             time.sleep(config["poll_interval"])
     except KeyboardInterrupt:
         print("\n[bridge] stopped")

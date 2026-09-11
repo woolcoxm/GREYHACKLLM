@@ -74,7 +74,7 @@ DEFAULT_CONFIG = {
     "max_history": 6,
     "request_timeout": 600,
     "max_tokens": 16384,
-    "thinking_budget": 3000,
+    "thinking_budget": 6000,
     "max_tool_rounds": 0,
     "tool_timeout": 360,
 }
@@ -1220,16 +1220,26 @@ def mission_state(transport):
     return "\n\n".join(parts)
 
 
-def stream_thinking(transport, round_no, text):
+def extract_thinking(blocks):
+    """The model's actual internal reasoning blocks (type 'thinking'),
+    as opposed to its visible commentary text."""
+    return " ".join(
+        " ".join(b.get("thinking", "").split())
+        for b in blocks
+        if b.get("type") == "thinking"
+    ).strip()
+
+
+def stream_thinking(transport, round_no, text, label="thought"):
     """Publish the model's interim thinking to the bridge so the in-game
     serve loop can print it live — otherwise the game terminal looks frozen
     during (sometimes minutes-long) LLM rounds. Best-effort: a missing file
     (old in-game runtime) or write failure must never break a round."""
-    line = " ".join(text.split())[:240]
+    line = " ".join(text.split())[:900]
     if not line:
         return
     try:
-        transport.write("thinking.txt", f"[{round_no}] {line}")
+        transport.write("thinking.txt", f"[{round_no}|{label}] {line}")
     except Exception as exc:  # noqa: BLE001 - display-only channel
         print(f"[bridge] thinking stream skipped: {exc}")
 
@@ -1312,9 +1322,15 @@ def agent_loop(config, transport, llm_fn, system_prompt, prompt, history):
         messages.append({"role": "assistant", "content": blocks})
         tool_uses = [b for b in blocks if b.get("type") == "tool_use"]
         interim = extract_text(blocks).strip()
+        reasoning = extract_thinking(blocks)
+        # stream the real reasoning blocks when present (that's the "a lot
+        # to say" content), otherwise the visible commentary
+        if reasoning:
+            stream_thinking(transport, round_no, reasoning, label="reasoning")
         if interim:
             log(f"thinking: {interim[:160]}")
-            stream_thinking(transport, round_no, interim)
+            if not reasoning:
+                stream_thinking(transport, round_no, interim)
         if not tool_uses:
             final = interim
             if not final:

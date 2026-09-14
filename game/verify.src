@@ -1,0 +1,165 @@
+// verify — one-shot LIVE verification of the plague tool (v39+).
+// Paste into the in-game Code Editor, save as ~/verify.src, Compile,
+// then run:   ~/verify            (single-target assault + checklist)
+//             ~/verify -auto      (also runs 1 epidemic cycle + digest)
+//
+// What it does:
+//   1. compiles ~/exploit.src (fresh v39)
+//   2. picks a live target from ~/worm.state (or a random public)
+//   3. runs ONE full assault on it with -fork=1 (LAN specialist only,
+//      keeps the run bounded) — destruction + persistence ON (defaults)
+//   4. prints a PASS/FAIL checklist for the lines that MUST appear
+//   5. with -auto: runs the epidemic for 1 cycle x 2 hosts and then
+//      summarizes ~/Desktop/wormreport.txt (owned growth, BURNED count)
+//
+// Any FAIL line = report it back and it gets fixed in the next iteration.
+
+has = function(txt, needle)
+	if txt == null then
+		return false
+	end if
+	return txt.indexOf(needle) != null
+end function
+
+check = function(label, txt, needle)
+	if has(txt, needle) then
+		print("PASS  " + label)
+	else
+		print("FAIL  " + label + "  (missing: '" + needle + "')")
+	end if
+	return null
+end function
+
+main = function(params)
+	comp = get_shell.host_computer
+	doAuto = false
+	if params != null then
+		for p in params
+			if p == "-auto" then
+				doAuto = true
+			end if
+		end for
+	end if
+	print("== verify: compiling ~/exploit.src ==")
+	bw = get_shell.build("/home/mark/exploit.src", "/home/mark")
+	if bw != "" then
+		print("FAIL  compile: " + bw)
+		return null
+	end if
+	print("PASS  compile")
+	// pick a target: first live F| entry in the state, else random probe
+	target = null
+	sf = comp.File("/home/mark/worm.state")
+	if sf != null then
+		lines = sf.get_content.split(char(10))
+		i = 0
+		while target == null and i < lines.len
+			l = lines[i].trim
+			if l.indexOf("F|") == 0 then
+				ip = l[2:]
+				if get_shell.ping(ip) == 1 then
+					target = ip
+				end if
+			end if
+			i = i + 1
+		end while
+	end if
+	if target == null then
+		print("NOTE  no live target in worm.state — probing random publics")
+		i = 0
+		while target == null and i < 20
+			a = 30 + (floor(time()) + i * 7) % 200
+			b = 1 + (floor(time()) + i * 13) % 250
+			c = 1 + (floor(time()) + i * 29) % 250
+			d = 1 + (floor(time()) + i * 41) % 250
+			ip = a + "." + b + "." + c + "." + d
+			if get_shell.ping(ip) == 1 then
+				target = ip
+			end if
+			i = i + 1
+		end while
+	end if
+	if target == null then
+		print("FAIL  no live target found at all — check your internet in game")
+		return null
+	end if
+	print("== verify: assaulting " + target + " (fork=1, burn ON) ==")
+	rep = "/home/mark/verify_report.txt"
+	rf = comp.File(rep)
+	if rf != null then
+		rf.set_content(" ")
+	end if
+	lr = get_shell.launch("/home/mark/exploit", target + " -fork=1 -o=" + rep + " -E=/home/mark/verify_loot.txt -depth=2")
+	if lr != 1 then
+		print("FAIL  assault launch: " + lr)
+		return null
+	end if
+	txt = ""
+	rf2 = comp.File(rep)
+	if rf2 != null then
+		txt = rf2.get_content
+	end if
+	if txt == null then
+		txt = ""
+	end if
+	print("== verify: checklist for " + target + " ==")
+	check("assault produced a report", txt, "=== exploit " + target)
+	check("footholds obtained", txt, "FOOTHOLD")
+	check("census line (kinds discerned)", txt, "SUMMARY footholds=")
+	check("verdict emitted", txt, "VERDICT")
+	check("deploy landed under camouflage name", txt, "DEPLOY landed as")
+	check("fork/LAN child launched", txt, "FORK-1 launched")
+	check("host burned", txt, "DESTROYED " + target)
+	if has(txt, "DESTROY-GUARD") then
+		print("NOTE  DESTROY-GUARD fired — foothold resolved to OUR machine (unexpected on a remote target)")
+	end if
+	print("== verify: report tail ==")
+	lines2 = txt.split(char(10))
+	start = 0
+	if lines2.len > 18 then
+		start = lines2.len - 18
+	end if
+	for j in range(start, lines2.len - 1)
+		if lines2[j].trim != "" then
+			print("  " + lines2[j])
+		end if
+	end for
+	if doAuto then
+		print("== verify: epidemic cycle (1 cycle, 2 hosts) ==")
+		lr2 = get_shell.launch("/home/mark/exploit", "-cycles=1 -t=2")
+		if lr2 != 1 then
+			print("FAIL  epidemic launch: " + lr2)
+			return null
+		end if
+		print("PASS  epidemic cycle completed")
+		df = comp.File("/home/mark/Desktop/wormreport.txt")
+		dtxt = ""
+		if df != null then
+			dtxt = df.get_content
+		end if
+		if dtxt == null then
+			dtxt = ""
+		end if
+		nBurned = 0
+		nLines = 0
+		for dl in dtxt.split(char(10))
+			if dl.trim != "" then
+				nLines = nLines + 1
+			end if
+			if dl.indexOf("BURNED") != null then
+				nBurned = nBurned + 1
+			end if
+		end for
+		print("digest: " + nLines + " host lines, " + nBurned + " BURNED")
+		check("digest has entries", dtxt, " — ")
+		if nBurned > 0 then
+			print("PASS  burned hosts recorded")
+		else
+			print("FAIL  no BURNED digest entries yet")
+		end if
+	end if
+	print("== verify done — report every FAIL line back for the next fix ==")
+	return null
+end function
+
+main(params)

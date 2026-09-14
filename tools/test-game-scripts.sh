@@ -53,6 +53,11 @@ EOF
 sed -e 's/^\thopIp = null$/\thopIp = "1.2.3.4"/' \
     "$WORK/epidemic.src" > "$WORK/epidemic-hop.src"
 
+# LAN-specialist epidemic: real main with -lan forced on — must seed
+# from the router (mock has none), degrade to WAN, and finish cleanly
+sed -e 's/^\tglobals.lanEpic = false$/\tglobals.lanEpic = true/' \
+    "$WORK/epidemic.src" > "$WORK/epidemic-lan.src"
+
 PASS=0
 FAIL=0
 
@@ -131,6 +136,10 @@ check "plague: epidemic completes its cycle"  "cycle 1" ""
 SRCTGT="$WORK/epidemic-hop.src"
 check "plague: hop without record falls back" "attacking direct" ""
 check "plague: hop fallback still epidemics"  "EPIDEMIC" ""
+
+# LAN specialist mode: seeds from the router, degrades to WAN cleanly
+SRCTGT="$WORK/epidemic-lan.src"
+check "plague: LAN specialist seeds + degrades" "LAN specialist" ""
 
 echo
 echo "passed: $PASS  failed: $FAIL"

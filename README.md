@@ -436,6 +436,16 @@ alphanumeric before anything fires), `-depth=` infection-tree depth
 creating durable accounts (smaller footprint). Stolen credentials land
 in `~/Desktop/bankintel.txt`.
 
+**Chaos defaults (v39).** Destruction and persistence are ON by
+default: every host that spreads gets its filesystem wiped (`/etc`
+spared so the init.d backdoor survives — `-spare` disables), and every
+rooted machine plus the driver box get an `/etc/init.d` copy so the
+epidemic auto-resumes at every login (`-nopersist` disables). Each
+infected host fires a fork burst (`-fork=N`, default 3): one LAN
+specialist eating the victim's local network from inside, the rest
+seeding at random WAN entry points. Offline persistence exists only in
+the online game, via the victim-side init.d copies.
+
 **Opsec (v31).** Every attack writes to the victim's `/var/system.log`
 and only root can erase it — so the tool wipes that log the moment root
 is gained and again at finish (through every foothold), deletes exactly

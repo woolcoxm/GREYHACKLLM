@@ -79,6 +79,9 @@ fleetMain = function(params)
 	globals.duds = []
 	globals.dudsPath = null
 	globals.persist = false
+	globals.destroyMode = false
+	globals.forkCount = 3
+	globals.lanEpic = false
 	if ladder then
 		// stub child binary: a minimal program built as ~/exploit so
 		// deploy/relay/spread launches run for real (the launched

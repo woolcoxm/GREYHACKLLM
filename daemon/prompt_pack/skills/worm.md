@@ -81,6 +81,30 @@ WORM RESEARCH APPLIED (the who/what/when/why/how of real worms):
   never corrupt one state file, ledger cleanup + log wipes + honest
   EVIDENCE-LEFT accounting
 
+## Chaos doctrine (v39)
+
+The plague defaults are now MALICIOUS by design; every one has an
+opt-out flag:
+
+- DESTROY (default, -spare to disable): after spreading from a host,
+  its filesystem is WIPED through every foothold held — /etc is spared
+  so the init.d backdoor survives the burn. Digest marks hosts BURNED.
+- PERSIST (default, -nopersist): every rooted victim + the driver box
+  get an init.d copy — the epidemic auto-resumes at every login on
+  every infected machine (the game's only daemon mechanism; world
+  simulates logins over time). Offline persistence exists ONLY in the
+  online game, via these victim-side copies.
+- FORK BURST (-fork=N, default 3): each infected host fires N child
+  copies; fork 1 is the LAN SPECIALIST (-lan: eats the victim's whole
+  local network from inside, private IPs included), the rest seed at
+  random WAN entry points. GreyScript has no threads — concurrent
+  processes are the only parallelism; -install-workers=N gives true
+  simultaneous instances (init.d runs up to 15 at login).
+- Stealth/noise: login+transplant rungs only fire on hosts that
+  actually run ssh/ftp; cracked passwords are used immediately; logs
+  wiped on root; hop mode (-hop) launches assaults through an owned
+  host so targets never log the driver's IP.
+
 ## Distributed execution
 
 When the planner holds a shell with depth > 0, it scps THIS binary

@@ -20,6 +20,13 @@ sed -e 's/STALL_TIMEOUT = [0-9]*/STALL_TIMEOUT = 2/' \
 sed 's|"/lib/metaxploit.so"|"nosuchlib.so"|g' \
     game/exploit.src > "$WORK/exploit-nometax.src"
 
+# forced-TRANSPLANT scenario: fire only the root-computer vuln on the
+# rich mock host -> no shell anywhere -> the ladder must reach the
+# /etc/passwd hash transplant and report an honest PARTIAL verdict
+sed -e 's/globals.onlyPort = null/globals.onlyPort = 21/' \
+    -e 's/globals.wantName = null/globals.wantName = "Textnewind"/' \
+    game/exploit.src > "$WORK/exploit-transplant.src"
+
 # an EPIDEMIC harness: the real tool with its entry call replaced by a
 # wrapper that builds a stub ~/exploit binary, then runs the REAL main
 # with -cycles=1 — the stub ignores its args, so the driver must detect
@@ -40,6 +47,11 @@ epiMain = function(params)
 end function
 epiMain(params)
 EOF
+
+# epidemic harness with -hop set but no owned record: must degrade to
+# direct attacks with a clear reason, not crash
+sed -e 's/^\thopIp = null$/\thopIp = "1.2.3.4"/' \
+    "$WORK/epidemic.src" > "$WORK/epidemic-hop.src"
 
 PASS=0
 FAIL=0
@@ -103,11 +115,21 @@ check "plague: scan mode writes targets"  "scan complete" -scan
 SRCTGT="$WORK/exploit-nometax.src"
 check "plague: FATAL without metaxploit"  "FATAL no metaxploit" -L
 
+# transplant scenario (root computer, no shell, all avenues)
+SRCTGT="$WORK/exploit-transplant.src"
+check "plague: transplant rung fires"     "TRANSPLANT" 1.2.3.4
+check "plague: shell-less host is PARTIAL" "VERDICT PARTIAL root-computer" 1.2.3.4
+
 # epidemic driver: real main, stub child binary, bounded to 1 cycle
 SRCTGT="$WORK/epidemic.src"
 check "plague: epidemic starts immortal loop" "EPIDEMIC" ""
 check "plague: epidemic detects crashed child" "crashed mid-run" ""
 check "plague: epidemic completes its cycle"  "cycle 1" ""
+
+# hop mode without an owned record: graceful direct fallback
+SRCTGT="$WORK/epidemic-hop.src"
+check "plague: hop without record falls back" "attacking direct" ""
+check "plague: hop fallback still epidemics"  "EPIDEMIC" ""
 
 echo
 echo "passed: $PASS  failed: $FAIL"
